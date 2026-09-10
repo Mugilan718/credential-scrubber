@@ -88,6 +88,20 @@ def find_key_value(line):
     return m.group(1), m.group(2)
 
 
+def quoted_mask(value):
+    """Mask a config value, preserving its surrounding quote character (if any).
+
+    `value` is the raw text captured after 'key:'/'key=', which still includes
+    any quotes the author wrote (e.g. `"secret"`). Replacing that whole span
+    with the bare MASK would silently strip the quotes; wrapping the MASK in
+    the same quote char keeps the redacted line's quoting style unchanged.
+    """
+    v = value.rstrip()
+    if len(v) >= 2 and v[0] in ('"', "'") and v[-1] == v[0]:
+        return v[0] + MASK + v[0]
+    return MASK
+
+
 def redact_config_line(line, rules, report_entries, filename, line_no):
     key, value = find_key_value(line)
     if key is None:
@@ -100,9 +114,10 @@ def redact_config_line(line, rules, report_entries, filename, line_no):
 
     # Key-name match ALWAYS redacts, placeholder allow-list does not apply here.
     if key_matched:
+        replacement = quoted_mask(value)
         report_entries.append({"file": filename, "line": line_no, "key": key, "rule": "key_name_match",
-                                "before": value, "after": MASK})
-        new_line = line.replace(value, MASK, 1) if value in line else f"{key}={MASK}"
+                                "before": value, "after": replacement})
+        new_line = line.replace(value, replacement, 1) if value in line else f"{key}={replacement}"
         return new_line
 
     if is_placeholder(value, rules["placeholder_allowlist"]):
@@ -117,9 +132,10 @@ def redact_config_line(line, rules, report_entries, filename, line_no):
 
     if value_matched_name or entropy_flag:
         reason = value_matched_name or "high_entropy"
+        replacement = quoted_mask(value)
         report_entries.append({"file": filename, "line": line_no, "key": key, "rule": reason,
-                                "before": value, "after": MASK})
-        new_line = line.replace(value, MASK, 1) if value in line else f"{key}={MASK}"
+                                "before": value, "after": replacement})
+        new_line = line.replace(value, replacement, 1) if value in line else f"{key}={replacement}"
         return new_line
 
     return line
