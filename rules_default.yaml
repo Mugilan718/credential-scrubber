@@ -98,7 +98,10 @@ code_patterns:
     - "(?i)\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*\\s*=\\s*[\"']([^\"']*)[\"']"
     - "(?i)(?:os\\.getenv|os\\.environ\\.get)\\(\\s*[\"'][^\"']*(?:pass|secret|token|apikey|api_key|key|credential|auth)[^\"']*[\"']\\s*,\\s*[\"']([^\"']*)[\"']\\s*\\)"
   javascript:
-    - "(?i)(?:const|let|var)\\s+\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*\\s*=\\s*[`\"'](.*?)[`\"']"
+    # Optional (?:\s*:\s*[^=;\n]+?)? allows a TypeScript type annotation between the
+    # variable name and '=' (e.g. `: string`, `: string | undefined`, `: any`) so
+    # annotated declarations are caught the same as plain JS ones.
+    - "(?i)(?:const|let|var)\\s+\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*\\s*(?::\\s*[^=;\\n]+?)?\\s*=\\s*[`\"'](.*?)[`\"']"
   go:
     - '(?i)\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\w*\s*:?=\s*"([^"]*)"'
   csharp:
