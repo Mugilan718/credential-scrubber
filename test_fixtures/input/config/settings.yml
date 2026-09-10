@@ -1,0 +1,7 @@
+# Test fixture - fake credentials for credential-scrubber testing only. Not real.
+service:
+  name: demo-service
+  endpoint: https://internal.example.com/api
+  encryption_key: "MFEwEQYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFAKEKEYDATA1234567890"
+  session_key: dummy
+  region: us-east-1

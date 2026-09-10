@@ -7,9 +7,9 @@ __pycache__/
 *.pyc
 
 # Scan output / sanitized copies (generated, never source of truth)
+output/
+sanitized/
 *_output/
 *_sanitized/
-/output/
-/sanitized/
 /scratch/
 /tmp/
