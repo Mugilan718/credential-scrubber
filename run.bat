@@ -1,0 +1,6 @@
+@echo off
+echo Installing dependencies (first run only)...
+py -m pip install -r requirements.txt --quiet
+echo Starting Credential Scrubber...
+py app.py
+pause

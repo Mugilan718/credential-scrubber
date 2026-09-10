@@ -1,0 +1,15 @@
+# Local SQLite database (projects + scan history) and per-scan temp rule files
+data/app.db
+data/rules_project_*.yaml
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Scan output / sanitized copies (generated, never source of truth)
+*_output/
+*_sanitized/
+/output/
+/sanitized/
+/scratch/
+/tmp/
