@@ -9,6 +9,7 @@ Everything runs locally. No data leaves this machine.
 
 import copy
 import json
+import re
 import webbrowser
 import threading
 from pathlib import Path
@@ -33,6 +34,63 @@ def load_default_rules_dict():
 def strip_sensitive(entries):
     """Return report entries without 'before'/'after' raw values - safe to display/export by default."""
     return [{"file": e["file"], "line": e["line"], "key": e.get("key"), "rule": e["rule"]} for e in entries]
+
+
+def _is_str_list(value):
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def validate_rules(rules):
+    """Validate the shape of a rules dict before it's persisted.
+
+    Only checks keys that are present, so a partial update doesn't need to
+    restate every section. Returns an error message string, or None if valid.
+    """
+    if not isinstance(rules, dict):
+        return "Request body must be a JSON object"
+
+    if "key_patterns" in rules:
+        key_patterns = rules["key_patterns"]
+        if not _is_str_list(key_patterns):
+            return "key_patterns must be a list of strings"
+        for pattern in key_patterns:
+            try:
+                re.compile(pattern, re.IGNORECASE)
+            except re.error as e:
+                return f"Invalid regex in key_patterns: {pattern!r} ({e})"
+
+    if "placeholder_allowlist" in rules:
+        if not _is_str_list(rules["placeholder_allowlist"]):
+            return "placeholder_allowlist must be a list of strings"
+
+    if "value_patterns" in rules:
+        value_patterns = rules["value_patterns"]
+        if not isinstance(value_patterns, list):
+            return "value_patterns must be a list of objects with 'name' and 'regex' string fields"
+        for vp in value_patterns:
+            if (not isinstance(vp, dict)
+                    or not isinstance(vp.get("name"), str)
+                    or not isinstance(vp.get("regex"), str)):
+                return "value_patterns must be a list of objects with 'name' and 'regex' string fields"
+            try:
+                re.compile(vp["regex"], re.IGNORECASE)
+            except re.error as e:
+                return f"Invalid regex in value_patterns ({vp['name']!r}): {vp['regex']!r} ({e})"
+
+    if "code_patterns" in rules:
+        code_patterns = rules["code_patterns"]
+        if not isinstance(code_patterns, dict):
+            return "code_patterns must be a dict mapping language to a list of strings"
+        for lang, patterns in code_patterns.items():
+            if not _is_str_list(patterns):
+                return f"code_patterns[{lang!r}] must be a list of strings"
+            for pattern in patterns:
+                try:
+                    re.compile(pattern)
+                except re.error as e:
+                    return f"Invalid regex in code_patterns[{lang!r}]: {pattern!r} ({e})"
+
+    return None
 
 
 @app.route("/")
@@ -83,6 +141,9 @@ def api_update_rules(project_id):
     if not project:
         return jsonify({"error": "Project not found"}), 404
     new_rules = request.get_json()
+    error = validate_rules(new_rules)
+    if error:
+        return jsonify({"error": error}), 400
     db.update_project_rules(project_id, new_rules)
     return jsonify(new_rules)
 
