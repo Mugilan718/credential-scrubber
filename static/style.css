@@ -278,6 +278,7 @@ body {
 .result-row {
   display: grid;
   grid-template-columns: 42px 1fr 90px 160px;
+  column-gap: 12px;
   align-items: center;
   padding: 9px 14px;
   border-bottom: 1px solid var(--line);
@@ -313,6 +314,9 @@ body {
   color: var(--stamp-red);
   font-size: 11px;
   text-transform: lowercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .result-key {
@@ -326,6 +330,7 @@ body {
 .results-table-header {
   display: grid;
   grid-template-columns: 42px 1fr 90px 160px;
+  column-gap: 12px;
   padding: 8px 14px;
   font-family: var(--mono);
   font-size: 10.5px;
