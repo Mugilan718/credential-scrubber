@@ -76,7 +76,13 @@ def looks_high_entropy(value, min_length=20, min_entropy=3.5):
     v = value.strip().strip('"').strip("'")
     if len(v) < min_length:
         return False
-    if re.fullmatch(r"[A-Za-z\s]+", v):
+    # Words joined by common identifier/reference separators (snake_case,
+    # kebab-case, docker image refs like "repo/name:tag", dotted names) read
+    # as natural language, not randomness - skip them like pure-letter
+    # strings already are. Raising min_entropy instead isn't safe: a genuinely
+    # random hex secret tops out at log2(16) = 4.0 entropy, which already
+    # overlaps values like "community_platform_dev" (~3.97).
+    if re.fullmatch(r"[A-Za-z\s_\-/:.]+", v):
         return False
     return shannon_entropy(v) >= min_entropy
 
