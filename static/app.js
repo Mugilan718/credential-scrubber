@@ -209,7 +209,7 @@ async function openSensitiveModal(scanId) {
         <div class="result-line-no">${e.line}</div>
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
         <div class="result-rule">${escapeHtml(e.rule)}</div>
-        <div class="result-key">${escapeHtml(e.before || "")} <span class="redaction-bar" style="color:#5B6B66;background:none;">\u2192</span> ${escapeHtml(e.after || "")}</div>
+        <div class="sensitive-value">${escapeHtml(e.before || "")} <span class="redaction-bar" style="color:#5B6B66;background:none;">\u2192</span> ${escapeHtml(e.after || "")}</div>
       </div>`;
   });
   el("sensitiveTable").innerHTML = html;

@@ -327,6 +327,17 @@ body {
   white-space: nowrap;
 }
 
+/* Before/after secret values in the "Reveal original values" modal - these
+   must stay fully visible (the view's whole purpose is to show the real
+   secret), so wrap instead of truncating like .result-key does. */
+.sensitive-value {
+  color: var(--slate);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  white-space: normal;
+}
+
 .results-table-header {
   display: grid;
   grid-template-columns: 42px 1fr 90px 160px;
