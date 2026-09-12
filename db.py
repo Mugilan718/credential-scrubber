@@ -4,15 +4,29 @@ Everything stays on this machine. No network calls, no external DB.
 """
 
 import json
+import os
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "data" / "app.db"
+
+def _default_data_dir():
+    """Per-user, always-writable data directory - not relative to the
+    script/exe location, which may sit somewhere unwritable (e.g. Program
+    Files) once this is packaged as a standalone .exe."""
+    if sys.platform == "win32":
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / "CredentialScrubber"
+    return Path.home() / ".credential-scrubber"
+
+
+DATA_DIR = _default_data_dir()
+DB_PATH = DATA_DIR / "app.db"
 
 
 def get_conn():
-    DB_PATH.parent.mkdir(exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn

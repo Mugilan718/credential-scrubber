@@ -1,6 +1,7 @@
-# Local SQLite database (projects + scan history) and per-scan temp rule files
-data/app.db
-data/rules_project_*.yaml
+# The local SQLite database and per-scan temp rule files now live under the
+# OS-level per-user app data dir (%APPDATA%\CredentialScrubber on Windows,
+# ~/.credential-scrubber elsewhere - see db.py), not under this repo, so
+# there's nothing under data/ to ignore here anymore.
 
 # Python bytecode
 __pycache__/
@@ -13,3 +14,8 @@ sanitized/
 *_sanitized/
 /scratch/
 /tmp/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec

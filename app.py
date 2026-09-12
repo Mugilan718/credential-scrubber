@@ -12,6 +12,7 @@ import copy
 import json
 import os
 import re
+import sys
 import webbrowser
 import threading
 import tkinter as tk
@@ -24,10 +25,30 @@ from flask import Flask, jsonify, request, render_template, send_from_directory
 import db
 import engine
 
-APP_DIR = Path(__file__).parent
-DEFAULT_RULES_PATH = APP_DIR / "rules_default.yaml"
 
-app = Flask(__name__)
+def resource_path(relative_path):
+    """Absolute path to a bundled, read-only resource (templates, static
+    files, rules_default.yaml).
+
+    Works both run directly (relative to this file) and frozen into a
+    PyInstaller onefile .exe, which extracts bundled data to a temp
+    directory at sys._MEIPASS at runtime - a plain Path(__file__).parent
+    would resolve to that temp extraction dir when frozen, which is fine
+    for read-only resources but must not be confused with APP_DIR-style
+    persistent storage (see db.DATA_DIR for that).
+    """
+    base_path = getattr(sys, "_MEIPASS", None) or Path(__file__).parent
+    return Path(base_path) / relative_path
+
+
+APP_DIR = Path(__file__).parent
+DEFAULT_RULES_PATH = resource_path("rules_default.yaml")
+
+app = Flask(
+    __name__,
+    template_folder=str(resource_path("templates")),
+    static_folder=str(resource_path("static")),
+)
 
 # Guards tkinter's Tk() root creation/teardown in api_browse_folder() so two
 # overlapping browse requests can never construct two Tk() instances at once
@@ -210,8 +231,11 @@ def api_run_scan(project_id):
 
     rules_dict = json.loads(project["rules_json"])
 
-    # Write rules_dict to a temp yaml file since engine.load_rules expects a path
-    tmp_rules_path = APP_DIR / "data" / f"rules_project_{project_id}.yaml"
+    # Write rules_dict to a temp yaml file since engine.load_rules expects a path.
+    # Uses db.DATA_DIR (writable per-user app data), not APP_DIR - APP_DIR may be
+    # a read-only install location, or a frozen .exe's temp extraction dir.
+    db.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_rules_path = db.DATA_DIR / f"rules_project_{project_id}.yaml"
     with open(tmp_rules_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(rules_dict, f)
 
