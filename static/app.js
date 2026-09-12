@@ -60,6 +60,7 @@ async function selectProject(projectId) {
   el("resultsTable").classList.add("hidden");
   el("resultsEmpty").classList.remove("hidden");
   el("scanSummary").classList.add("hidden");
+  el("partialOutputWarning").classList.add("hidden");
   el("changedOnlyToggle").checked = false;
 
   await loadScanHistory(projectId);
@@ -187,6 +188,15 @@ function renderScanSummary(result) {
     <div><strong>${result.total_redactions}</strong><span>redactions</span></div>
     ${result.changed_only ? '<div class="scan-mode-badge">changed files only (git)</div>' : ""}
   `;
+
+  const warningBox = el("partialOutputWarning");
+  if (result.partial_output) {
+    warningBox.innerHTML = `<strong>Partial output</strong><p>${escapeHtml(result.partial_output_warning)}</p>`;
+    warningBox.classList.remove("hidden");
+  } else {
+    warningBox.classList.add("hidden");
+    warningBox.innerHTML = "";
+  }
 }
 
 // ---------- Report rendering ----------
@@ -383,6 +393,7 @@ async function viewHistoricalScan(scanId) {
   document.querySelector('[data-tab="results"]').click();
   await loadReport(scanId, false);
   el("scanSummary").classList.add("hidden");
+  el("partialOutputWarning").classList.add("hidden");
 }
 window.viewHistoricalScan = viewHistoricalScan;
 

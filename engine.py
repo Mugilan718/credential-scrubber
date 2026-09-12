@@ -487,15 +487,20 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
         for fname in files:
             src_path = Path(root) / fname
             rel_path = src_path.relative_to(input_dir)
-            dest_path = output_dir / rel_path
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
 
             if changed_files is not None and rel_path.as_posix() not in changed_files:
-                # Not a changed file in changed-files-only mode - still copy
-                # it through untouched, matching how non-scannable files are
-                # always passed through as-is.
-                shutil.copy2(src_path, dest_path)
+                # Changed-files-only mode: skip entirely rather than copying
+                # it through unredacted. The output folder in this mode is a
+                # PARTIAL result (only the files that were actually scanned),
+                # never a full mirrored copy - copying unchanged files
+                # through unredacted would make an incomplete output folder
+                # look like a complete, safe-to-share sanitized copy when it
+                # silently isn't (real secrets in untouched files would sit
+                # there in plaintext).
                 continue
+
+            dest_path = output_dir / rel_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
 
             classification = classify_file(src_path)
             if classification is not None:

@@ -238,6 +238,11 @@ def api_run_scan(project_id):
         "total_redactions": len(report_entries),
         "output_path": project["output_path"],
         "changed_only": changed_only,
+        "partial_output": changed_only,
+        "partial_output_warning": (
+            "Partial output - only changed files were written. "
+            "This is not a complete sanitized copy of the project."
+        ) if changed_only else None,
     })
 
 
