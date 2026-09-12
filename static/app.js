@@ -101,6 +101,31 @@ el("saveProjectBtn").onclick = async () => {
   }
 };
 
+// Native folder-browse buttons - the text field stays editable either way,
+// so a picked path can still be tweaked, or typed/pasted directly if the
+// dialog isn't wanted.
+async function browseForFolder(inputId, btnId) {
+  const btn = el(btnId);
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "Waiting…";
+  try {
+    const result = await api("/api/browse-folder", { method: "POST" });
+    if (result.path) {
+      el(inputId).value = result.path;
+    }
+  } catch (e) {
+    el("projModalError").textContent = "Folder browser failed: " + e.message;
+    el("projModalError").classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+el("browseInputBtn").onclick = () => browseForFolder("projInput", "browseInputBtn");
+el("browseOutputBtn").onclick = () => browseForFolder("projOutput", "browseOutputBtn");
+
 // ---------- Rules editor ----------
 
 el("editRulesBtn").onclick = async () => {

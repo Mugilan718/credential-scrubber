@@ -14,6 +14,8 @@ import os
 import re
 import webbrowser
 import threading
+import tkinter as tk
+from tkinter import filedialog
 from pathlib import Path
 
 import yaml
@@ -26,6 +28,12 @@ APP_DIR = Path(__file__).parent
 DEFAULT_RULES_PATH = APP_DIR / "rules_default.yaml"
 
 app = Flask(__name__)
+
+# Guards tkinter's Tk() root creation/teardown in api_browse_folder() so two
+# overlapping browse requests can never construct two Tk() instances at once
+# (undefined behavior in tkinter) - relevant if the dev server is ever run
+# with threaded=True; by default it handles requests on the main thread.
+_browse_lock = threading.Lock()
 
 
 def load_default_rules_dict():
@@ -137,6 +145,31 @@ def api_create_project():
     rules_dict = load_default_rules_dict()
     project_id = db.create_project(name, input_path, output_path, rules_dict)
     return jsonify(db.get_project(project_id)), 201
+
+
+@app.route("/api/browse-folder", methods=["POST"])
+def api_browse_folder():
+    """Open a native OS folder-selection dialog on this machine and return
+    the chosen absolute path, or {"path": null} if the user cancels.
+
+    This blocks the request until the dialog closes - acceptable for a
+    single-user local tool where only one browse can meaningfully happen at
+    a time. _browse_lock rejects a second overlapping request with 409
+    rather than risk two Tk() roots existing at once.
+    """
+    if not _browse_lock.acquire(blocking=False):
+        return jsonify({"error": "A folder browser is already open"}), 409
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        try:
+            path = filedialog.askdirectory(parent=root)
+        finally:
+            root.destroy()
+    finally:
+        _browse_lock.release()
+    return jsonify({"path": path or None})
 
 
 @app.route("/api/projects/<int:project_id>", methods=["DELETE"])

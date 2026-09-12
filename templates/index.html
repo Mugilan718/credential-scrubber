@@ -89,10 +89,16 @@
       <input type="text" id="projName" placeholder="e.g. Checkout Service" />
     </label>
     <label>Folder to scan (full path)
-      <input type="text" id="projInput" placeholder="e.g. D:\projects\checkout-service" />
+      <div class="input-with-button">
+        <input type="text" id="projInput" placeholder="e.g. D:\projects\checkout-service" />
+        <button type="button" class="btn-secondary btn-browse" id="browseInputBtn">Browse&hellip;</button>
+      </div>
     </label>
     <label>Output folder for sanitized copy (full path)
-      <input type="text" id="projOutput" placeholder="e.g. D:\projects\checkout-service-sanitized" />
+      <div class="input-with-button">
+        <input type="text" id="projOutput" placeholder="e.g. D:\projects\checkout-service-sanitized" />
+        <button type="button" class="btn-secondary btn-browse" id="browseOutputBtn">Browse&hellip;</button>
+      </div>
     </label>
     <p class="modal-error hidden" id="projModalError"></p>
     <div class="modal-actions">
