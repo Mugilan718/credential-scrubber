@@ -16,6 +16,31 @@ async function api(path, options = {}) {
   return data;
 }
 
+// ---------- Theme (dark mode) ----------
+// Session-only by design (sessionStorage, not localStorage) - the toggle
+// doesn't need to survive a full app restart, just page reloads.
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  const btn = el("themeToggleBtn");
+  if (btn) {
+    btn.innerHTML = icon(theme === "dark" ? "sun" : "moon", { size: 16 });
+    btn.title = theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  }
+}
+
+function initTheme() {
+  // index.html's inline head script already set data-theme before first
+  // paint (avoiding a flash of the wrong theme) - just sync the button.
+  const current = document.documentElement.getAttribute("data-theme") || "light";
+  applyTheme(current);
+  el("themeToggleBtn").onclick = () => {
+    const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    sessionStorage.setItem("theme", next);
+    applyTheme(next);
+  };
+}
+
 // ---------- Static icon labels ----------
 // Buttons defined in index.html are left as empty shells (id + class only)
 // so their icon+label markup lives in one place (icons.js) instead of being
@@ -318,7 +343,7 @@ async function openSensitiveModal(scanId) {
         <div class="result-line-no">${e.line}</div>
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
         <div class="result-rule" title="${escapeHtml(ruleTitle)}">${escapeHtml(e.rule)}${flagged ? ' <span class="changed-badge">\u26a0 changed</span>' : ""}</div>
-        <div class="sensitive-value">${escapeHtml(e.before || "")} <span class="redaction-bar" style="color:#5B6B66;background:none;">\u2192</span> ${escapeHtml(e.after || "")}</div>
+        <div class="sensitive-value">${escapeHtml(e.before || "")} <span class="redaction-arrow">\u2192</span> ${escapeHtml(e.after || "")}</div>
         <div><button class="btn-ignore" title="Ignore this finding">${icon("x", { size: 14 })}</button></div>
       </div>`;
   });
@@ -475,5 +500,6 @@ function postProcessMask() {
   document.querySelectorAll(".result-row").forEach((row) => {});
 }
 
+initTheme();
 initStaticIcons();
 loadProjects();

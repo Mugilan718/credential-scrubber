@@ -4,6 +4,16 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Credential Scrubber</title>
+<script>
+  // Set the theme before first paint so there's no flash of the wrong
+  // theme on load. Session-only (sessionStorage), matching app.js.
+  (function () {
+    try {
+      var theme = sessionStorage.getItem("theme") || "light";
+      document.documentElement.setAttribute("data-theme", theme);
+    } catch (e) {}
+  })();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -15,7 +25,10 @@
 
   <aside class="case-drawer">
     <div class="drawer-header">
-      <h1>Credential<br/>Scrubber</h1>
+      <div class="drawer-header-top">
+        <h1>Credential<br/>Scrubber</h1>
+        <button id="themeToggleBtn" class="btn-icon" title="Toggle dark mode"></button>
+      </div>
       <p class="drawer-sub">local audit tool &mdash; nothing leaves this machine</p>
     </div>
 

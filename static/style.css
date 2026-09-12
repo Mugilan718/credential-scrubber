@@ -28,6 +28,43 @@
   --shadow-md: 0 2px 6px rgba(23,20,15,0.08), 0 4px 12px rgba(23,20,15,0.06);
   --shadow-lg: 0 8px 24px rgba(23,20,15,0.14), 0 16px 40px rgba(23,20,15,0.10);
   --focus-ring: 0 0 0 3px rgba(156,59,48,0.18);
+
+  /* Subtle hover tint: darkens on the light paper, lightens on dark paper. */
+  --hover-tint: rgba(0,0,0,0.03);
+
+  /* Zebra-striped table rows, and the "value changed since ignored" flag. */
+  --paper-alt: #F0EDE4;
+  --flagged-bg: #F6E9E7;
+  --flagged-bg-alt: #F2E2DF;
+  --btn-primary-hover: #2b2620;
+}
+
+/* Dark mode - same redaction/case-file visual language (paper texture,
+   stamp-red accent, mono/slab type), just a dark charcoal "paper" instead
+   of a light one. Toggled via [data-theme] on <html>, set by app.js and
+   kept only for the current session (sessionStorage), not persisted
+   across restarts. */
+[data-theme="dark"] {
+  --paper: #1C1A16;
+  --paper-raised: #262319;
+  --ink: #EDEAE8;
+  --ink-soft: #B7B0A0;
+  --stamp-red: #D46E5F;
+  --slate: #93A69D;
+  --redaction: #000000;
+  --line: #3A362C;
+  --line-strong: #55503F;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.25);
+  --shadow-md: 0 2px 6px rgba(0,0,0,0.35), 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.45), 0 16px 40px rgba(0,0,0,0.4);
+  --focus-ring: 0 0 0 3px rgba(212,110,95,0.25);
+  --hover-tint: rgba(255,255,255,0.05);
+
+  --paper-alt: #211E18;
+  --flagged-bg: #33221C;
+  --flagged-bg-alt: #3A2620;
+  --btn-primary-hover: #DCD6C6;
 }
 
 * { box-sizing: border-box; }
@@ -38,6 +75,7 @@ body {
   color: var(--ink);
   font-family: var(--sans);
   font-size: 15px;
+  transition: background 0.15s ease, color 0.15s ease;
   line-height: 1.5;
 }
 
@@ -62,6 +100,13 @@ body {
   gap: var(--space-8);
 }
 
+.drawer-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .drawer-header h1 {
   font-family: var(--slab);
   font-size: 22px;
@@ -70,6 +115,8 @@ body {
   margin: 0 0 var(--space-2) 0;
   letter-spacing: -0.01em;
 }
+
+#themeToggleBtn { flex-shrink: 0; }
 
 .drawer-sub {
   font-family: var(--mono);
@@ -116,7 +163,7 @@ body {
 
 .project-item-main { min-width: 0; flex: 1; }
 
-.project-item:hover { background: rgba(0,0,0,0.03); }
+.project-item:hover { background: var(--hover-tint); }
 
 .project-item.active {
   background: rgba(156,59,48,0.07);
@@ -211,7 +258,7 @@ body {
   color: var(--paper);
   box-shadow: var(--shadow-sm);
 }
-.btn-primary:hover { background: #2b2620; box-shadow: var(--shadow-md); }
+.btn-primary:hover { background: var(--btn-primary-hover); box-shadow: var(--shadow-md); }
 .btn-primary:active { transform: scale(0.98); box-shadow: var(--shadow-sm); }
 .btn-primary:disabled { opacity: 0.65; cursor: default; transform: none; box-shadow: none; }
 
@@ -432,13 +479,13 @@ body {
 }
 
 .result-row:last-child { border-bottom: none; }
-.result-row:nth-child(even) { background: #F0EDE4; }
+.result-row:nth-child(even) { background: var(--paper-alt); }
 
 .result-row.flagged-changed {
   border-left: 3px solid var(--stamp-red);
-  background: #F6E9E7;
+  background: var(--flagged-bg);
 }
-.result-row.flagged-changed:nth-child(even) { background: #F2E2DF; }
+.result-row.flagged-changed:nth-child(even) { background: var(--flagged-bg-alt); }
 
 .changed-badge {
   display: inline-block;
@@ -468,6 +515,8 @@ body {
   padding: 1px 10px;
   user-select: none;
 }
+
+.redaction-arrow { color: var(--slate); }
 
 .result-rule {
   color: var(--stamp-red);
