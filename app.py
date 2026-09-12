@@ -172,6 +172,9 @@ def api_run_scan(project_id):
     if not project:
         return jsonify({"error": "Project not found"}), 404
 
+    body = request.get_json(silent=True) or {}
+    changed_only = bool(body.get("changed_only", False))
+
     rules_dict = json.loads(project["rules_json"])
 
     # Write rules_dict to a temp yaml file since engine.load_rules expects a path
@@ -185,8 +188,11 @@ def api_run_scan(project_id):
 
     try:
         report_entries, files_scanned, files_skipped = engine.scan_project(
-            project["input_path"], project["output_path"], compiled_rules, ignore_map
+            project["input_path"], project["output_path"], compiled_rules, ignore_map,
+            changed_files_only=changed_only,
         )
+    except engine.NotAGitRepoError as e:
+        return jsonify({"error": str(e)}), 400
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -198,6 +204,7 @@ def api_run_scan(project_id):
         "files_skipped": files_skipped,
         "total_redactions": len(report_entries),
         "output_path": project["output_path"],
+        "changed_only": changed_only,
     })
 
 

@@ -18,11 +18,18 @@ import math
 import os
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import yaml
 
 MASK = "***REDACTED***"
+
+
+class NotAGitRepoError(Exception):
+    """Raised when changed_files_only scanning is requested but input_dir
+    isn't a git repository, so there's no changed-files list to scan."""
+    pass
 
 CONFIG_EXTENSIONS = {".properties", ".yml", ".yaml", ".json", ".xml", ".ini", ".conf", ".cfg"}
 CODE_EXTENSIONS = {
@@ -422,12 +429,52 @@ def process_file(src_path, rel_path, rules, report_entries, classification, igno
     return "".join(output_lines), None
 
 
-def scan_project(input_dir, output_dir, rules, ignore_map={}):
+def get_git_changed_files(input_dir):
+    """Return the set of file paths (POSIX-style, relative to input_dir) that
+    are staged, unstaged, or untracked in the git repo at input_dir.
+
+    Returns None if input_dir isn't a git repository (or git isn't
+    available) - deliberately distinct from an empty set, which would mean
+    "it's a repo, but nothing has changed" rather than "can't tell".
+
+    Assumes input_dir is itself the repo's top level; if it's a subdirectory
+    of a larger repo, git's paths are relative to the repo root instead and
+    won't line up with this function's callers.
+    """
+    commands = [
+        ["git", "diff", "--name-only", "--cached"],
+        ["git", "diff", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    ]
+    changed = set()
+    for cmd in commands:
+        try:
+            result = subprocess.run(
+                cmd, cwd=str(input_dir), capture_output=True, text=True, check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+            return None
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line:
+                changed.add(line)
+    return changed
+
+
+def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False):
     input_dir = Path(input_dir).resolve()
     output_dir = Path(output_dir).resolve()
 
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
+
+    changed_files = None
+    if changed_files_only:
+        changed_files = get_git_changed_files(input_dir)
+        if changed_files is None:
+            raise NotAGitRepoError(
+                f"{input_dir} is not a git repository - full scan required"
+            )
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -442,6 +489,13 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}):
             rel_path = src_path.relative_to(input_dir)
             dest_path = output_dir / rel_path
             dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+            if changed_files is not None and rel_path.as_posix() not in changed_files:
+                # Not a changed file in changed-files-only mode - still copy
+                # it through untouched, matching how non-scannable files are
+                # always passed through as-is.
+                shutil.copy2(src_path, dest_path)
+                continue
 
             classification = classify_file(src_path)
             if classification is not None:

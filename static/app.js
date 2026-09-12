@@ -60,6 +60,7 @@ async function selectProject(projectId) {
   el("resultsTable").classList.add("hidden");
   el("resultsEmpty").classList.remove("hidden");
   el("scanSummary").classList.add("hidden");
+  el("changedOnlyToggle").checked = false;
 
   await loadScanHistory(projectId);
   await loadIgnores(projectId);
@@ -133,10 +134,14 @@ el("saveRulesBtn").onclick = async () => {
 
 el("scanBtn").onclick = async () => {
   const btn = el("scanBtn");
+  const changedOnly = el("changedOnlyToggle").checked;
   btn.disabled = true;
   btn.textContent = "Scanning\u2026";
   try {
-    const result = await api(`/api/projects/${state.activeProjectId}/scan`, { method: "POST" });
+    const result = await api(`/api/projects/${state.activeProjectId}/scan`, {
+      method: "POST",
+      body: JSON.stringify({ changed_only: changedOnly }),
+    });
     state.activeScanId = result.scan_id;
     renderScanSummary(result);
     await loadReport(result.scan_id, true);
@@ -155,6 +160,7 @@ function renderScanSummary(result) {
   box.innerHTML = `
     <div><strong>${result.files_scanned}</strong><span>files scanned</span></div>
     <div><strong>${result.total_redactions}</strong><span>redactions</span></div>
+    ${result.changed_only ? '<div class="scan-mode-badge">changed files only (git)</div>' : ""}
   `;
 }
 
