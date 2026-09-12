@@ -62,6 +62,7 @@ async function selectProject(projectId) {
   el("scanSummary").classList.add("hidden");
 
   await loadScanHistory(projectId);
+  await loadIgnores(projectId);
 }
 
 // ---------- New project modal ----------
@@ -170,22 +171,26 @@ async function loadReport(scanId, animate) {
     return;
   }
 
-  let html = `<div class="results-table-header" style="grid-template-columns: 42px 1fr 100px 90px 160px;">
-      <div>Line</div><div>File</div><div>Value</div><div>Rule</div><div>Key / Variable</div>
+  const cols = "42px 1fr 100px 90px 160px 74px";
+  let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
+      <div>Line</div><div>File</div><div>Value</div><div>Rule</div><div>Key / Variable</div><div></div>
     </div>`;
-  data.entries.forEach((e, i) => {
-    html += `<div class="result-row" style="grid-template-columns: 42px 1fr 100px 90px 160px;">
+  data.entries.forEach((e) => {
+    html += `<div class="result-row" data-file="${escapeHtml(e.file)}" data-key="${escapeHtml(e.key || "")}" data-rule="${escapeHtml(e.rule)}" style="grid-template-columns: ${cols};">
         <div class="result-line-no">${e.line}</div>
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
         <div><span class="redaction-bar">REDACTED</span></div>
         <div class="result-rule">${escapeHtml(e.rule)}</div>
         <div class="result-key">${escapeHtml(e.key || "\u2014")}</div>
+        <div><button class="btn-ignore">Ignore</button></div>
       </div>`;
   });
   html += `<div class="reveal-sensitive-row">
       <button class="btn-secondary" id="revealSensitiveBtn">Reveal original values (sensitive)</button>
     </div>`;
   table.innerHTML = html;
+
+  wireIgnoreButtons(table, data.entries);
 
   el("revealSensitiveBtn").onclick = () => openSensitiveModal(scanId);
 
@@ -201,22 +206,117 @@ async function loadReport(scanId, animate) {
 
 async function openSensitiveModal(scanId) {
   const data = await api(`/api/scans/${scanId}/sensitive`);
-  let html = `<div class="results-table-header">
-      <div>Line</div><div>File</div><div>Rule</div><div>Before \u2192 After</div>
+  const cols = "42px 1fr 90px 1fr 74px";
+  let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
+      <div>Line</div><div>File</div><div>Rule</div><div>Before \u2192 After</div><div></div>
     </div>`;
   data.entries.forEach((e) => {
-    html += `<div class="result-row" style="grid-template-columns: 42px 1fr 90px 1fr;">
+    html += `<div class="result-row" data-file="${escapeHtml(e.file)}" data-key="${escapeHtml(e.key || "")}" data-rule="${escapeHtml(e.rule)}" style="grid-template-columns: ${cols};">
         <div class="result-line-no">${e.line}</div>
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
         <div class="result-rule">${escapeHtml(e.rule)}</div>
         <div class="sensitive-value">${escapeHtml(e.before || "")} <span class="redaction-bar" style="color:#5B6B66;background:none;">\u2192</span> ${escapeHtml(e.after || "")}</div>
+        <div><button class="btn-ignore">Ignore</button></div>
       </div>`;
   });
-  el("sensitiveTable").innerHTML = html;
+  const sensitiveTable = el("sensitiveTable");
+  sensitiveTable.innerHTML = html;
+  wireIgnoreButtons(sensitiveTable, data.entries);
   el("sensitiveModalOverlay").classList.remove("hidden");
 }
 
 el("closeSensitiveBtn").onclick = () => el("sensitiveModalOverlay").classList.add("hidden");
+
+// ---------- Ignored findings ----------
+
+function wireIgnoreButtons(container, entries) {
+  [...container.querySelectorAll(".result-row")].forEach((row, i) => {
+    const entry = entries[i];
+    const btn = row.querySelector(".btn-ignore");
+    if (btn) btn.onclick = () => ignoreFinding(entry);
+  });
+}
+
+async function ignoreFinding(entry) {
+  try {
+    await api(`/api/projects/${state.activeProjectId}/ignore`, {
+      method: "POST",
+      body: JSON.stringify({ file: entry.file, key: entry.key ?? null, rule: entry.rule }),
+    });
+    removeMatchingRows(entry);
+    showToast("Finding ignored \u2014 won't reappear on the next scan.");
+    await loadIgnores(state.activeProjectId);
+  } catch (e) {
+    showToast("Failed to ignore: " + e.message, true);
+  }
+}
+
+function removeMatchingRows(entry) {
+  const keyVal = entry.key || "";
+  ["resultsTable", "sensitiveTable"].forEach((tableId) => {
+    const table = el(tableId);
+    if (!table) return;
+    table.querySelectorAll(".result-row").forEach((row) => {
+      if (row.dataset.file === entry.file && row.dataset.key === keyVal && row.dataset.rule === entry.rule) {
+        row.remove();
+      }
+    });
+  });
+}
+
+async function loadIgnores(projectId) {
+  const ignores = await api(`/api/projects/${projectId}/ignore`);
+  const list = el("ignoredList");
+  el("ignoredEmpty").classList.toggle("hidden", ignores.length > 0);
+  list.classList.toggle("hidden", ignores.length === 0);
+
+  if (!ignores.length) {
+    list.innerHTML = "";
+    return;
+  }
+
+  const cols = "1fr 160px 180px 110px 90px";
+  let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
+      <div>File</div><div>Key / Variable</div><div>Rule</div><div>Ignored on</div><div></div>
+    </div>`;
+  ignores.forEach((ig) => {
+    html += `<div class="result-row" style="grid-template-columns: ${cols};">
+        <div class="result-file" title="${escapeHtml(ig.file)}">${escapeHtml(ig.file)}</div>
+        <div class="result-key">${escapeHtml(ig.key || "\u2014")}</div>
+        <div class="result-rule">${escapeHtml(ig.rule)}</div>
+        <div class="result-line-no">${new Date(ig.created_at).toLocaleDateString()}</div>
+        <div><button class="btn-secondary btn-restore" data-id="${ig.id}">Restore</button></div>
+      </div>`;
+  });
+  list.innerHTML = html;
+
+  list.querySelectorAll(".btn-restore").forEach((btn) => {
+    btn.onclick = () => restoreIgnore(Number(btn.dataset.id));
+  });
+}
+
+async function restoreIgnore(ignoreId) {
+  try {
+    await api(`/api/projects/${state.activeProjectId}/ignore/${ignoreId}`, { method: "DELETE" });
+    showToast("Finding restored \u2014 will reappear on the next scan.");
+    await loadIgnores(state.activeProjectId);
+  } catch (e) {
+    showToast("Failed to restore: " + e.message, true);
+  }
+}
+
+function showToast(message, isError) {
+  let toast = el("toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.className = "toast visible" + (isError ? " toast-error" : "");
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => toast.classList.remove("visible"), 2500);
+}
 
 // ---------- History ----------
 

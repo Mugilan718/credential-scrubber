@@ -38,6 +38,15 @@ def init_db():
             report_json TEXT NOT NULL,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS ignored_findings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL,
+            file TEXT NOT NULL,
+            key TEXT,
+            rule TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
     """)
     conn.commit()
     conn.close()
@@ -79,6 +88,7 @@ def update_project_rules(project_id, rules_dict):
 def delete_project(project_id):
     conn = get_conn()
     conn.execute("DELETE FROM scans WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM ignored_findings WHERE project_id = ?", (project_id,))
     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
     conn.commit()
     conn.close()
@@ -115,3 +125,32 @@ def get_scan_report(scan_id):
     d = dict(row)
     d["report"] = json.loads(d.pop("report_json"))
     return d
+
+
+def add_ignore(project_id, file, key, rule):
+    conn = get_conn()
+    cur = conn.execute(
+        "INSERT INTO ignored_findings (project_id, file, key, rule, created_at) VALUES (?, ?, ?, ?, ?)",
+        (project_id, file, key, rule, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    ignore_id = cur.lastrowid
+    conn.close()
+    return ignore_id
+
+
+def remove_ignore(ignore_id):
+    conn = get_conn()
+    conn.execute("DELETE FROM ignored_findings WHERE id = ?", (ignore_id,))
+    conn.commit()
+    conn.close()
+
+
+def list_ignores(project_id):
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, project_id, file, key, rule, created_at FROM ignored_findings WHERE project_id = ? ORDER BY created_at DESC",
+        (project_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

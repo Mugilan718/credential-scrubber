@@ -93,6 +93,20 @@ def validate_rules(rules):
     return None
 
 
+def validate_ignore_body(data):
+    """Validate the body of POST /api/projects/<id>/ignore. Returns an error
+    message string, or None if valid."""
+    if not isinstance(data, dict):
+        return "Request body must be a JSON object"
+    if not isinstance(data.get("file"), str) or not data["file"].strip():
+        return "file is required and must be a non-empty string"
+    if not isinstance(data.get("rule"), str) or not data["rule"].strip():
+        return "rule is required and must be a non-empty string"
+    if "key" in data and data["key"] is not None and not isinstance(data["key"], str):
+        return "key must be a string or null"
+    return None
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -163,9 +177,11 @@ def api_run_scan(project_id):
 
     compiled_rules = engine.load_rules(tmp_rules_path)
 
+    ignore_set = {(i["file"], i["key"], i["rule"]) for i in db.list_ignores(project_id)}
+
     try:
         report_entries, files_scanned, files_skipped = engine.scan_project(
-            project["input_path"], project["output_path"], compiled_rules
+            project["input_path"], project["output_path"], compiled_rules, ignore_set
         )
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 400
@@ -184,6 +200,40 @@ def api_run_scan(project_id):
 @app.route("/api/projects/<int:project_id>/scans", methods=["GET"])
 def api_list_scans(project_id):
     return jsonify(db.list_scans(project_id))
+
+
+@app.route("/api/projects/<int:project_id>/ignore", methods=["GET"])
+def api_list_ignores(project_id):
+    project = db.get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    return jsonify(db.list_ignores(project_id))
+
+
+@app.route("/api/projects/<int:project_id>/ignore", methods=["POST"])
+def api_add_ignore(project_id):
+    project = db.get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    data = request.get_json()
+    error = validate_ignore_body(data)
+    if error:
+        return jsonify({"error": error}), 400
+    ignore_id = db.add_ignore(project_id, data["file"], data.get("key"), data["rule"])
+    return jsonify({"id": ignore_id, "project_id": project_id, "file": data["file"],
+                     "key": data.get("key"), "rule": data["rule"]}), 201
+
+
+@app.route("/api/projects/<int:project_id>/ignore/<int:ignore_id>", methods=["DELETE"])
+def api_remove_ignore(project_id, ignore_id):
+    project = db.get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    existing_ids = {i["id"] for i in db.list_ignores(project_id)}
+    if ignore_id not in existing_ids:
+        return jsonify({"error": "Ignore entry not found for this project"}), 404
+    db.remove_ignore(ignore_id)
+    return jsonify({"deleted": True})
 
 
 @app.route("/api/scans/<int:scan_id>/report", methods=["GET"])

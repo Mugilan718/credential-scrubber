@@ -50,6 +50,7 @@
       <nav class="tabs">
         <button class="tab-btn active" data-tab="results">Results</button>
         <button class="tab-btn" data-tab="history">Scan history</button>
+        <button class="tab-btn" data-tab="ignored">Ignored findings</button>
       </nav>
 
       <section id="tab-results" class="tab-panel active">
@@ -62,6 +63,14 @@
 
       <section id="tab-history" class="tab-panel">
         <div id="historyList" class="history-list"></div>
+      </section>
+
+      <section id="tab-ignored" class="tab-panel">
+        <p class="modal-hint">Ignored findings are skipped entirely on the next scan - no redaction, no report entry - until restored.</p>
+        <div id="ignoredEmpty" class="results-empty">
+          <p>No findings ignored for this project.</p>
+        </div>
+        <div id="ignoredList" class="results-table hidden"></div>
       </section>
     </div>
   </main>
