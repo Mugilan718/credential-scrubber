@@ -44,10 +44,16 @@ def init_db():
             file TEXT NOT NULL,
             key TEXT,
             rule TEXT NOT NULL,
+            value_hash TEXT,
             created_at TEXT NOT NULL,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
     """)
+    # Migrate DBs created before value_hash existed (CREATE TABLE IF NOT EXISTS
+    # above won't add a column to an already-existing table).
+    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ignored_findings)")}
+    if "value_hash" not in existing_cols:
+        conn.execute("ALTER TABLE ignored_findings ADD COLUMN value_hash TEXT")
     conn.commit()
     conn.close()
 
@@ -127,14 +133,34 @@ def get_scan_report(scan_id):
     return d
 
 
-def add_ignore(project_id, file, key, rule):
+def add_ignore(project_id, file, key, rule, value_hash=None):
+    """Add (or refresh) an ignore entry for (project_id, file, key, rule).
+
+    If this exact triple is already ignored, updates its stored value_hash
+    and created_at in place rather than inserting a duplicate row - so
+    re-ignoring a finding after its value changed (see engine.check_ignore)
+    cleanly replaces the stale hash instead of leaving two rows for the same
+    triple with an ambiguous "current" hash.
+    """
     conn = get_conn()
-    cur = conn.execute(
-        "INSERT INTO ignored_findings (project_id, file, key, rule, created_at) VALUES (?, ?, ?, ?, ?)",
-        (project_id, file, key, rule, datetime.now(timezone.utc).isoformat()),
-    )
+    now = datetime.now(timezone.utc).isoformat()
+    existing = conn.execute(
+        "SELECT id FROM ignored_findings WHERE project_id = ? AND file = ? AND key IS ? AND rule = ?",
+        (project_id, file, key, rule),
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE ignored_findings SET value_hash = ?, created_at = ? WHERE id = ?",
+            (value_hash, now, existing["id"]),
+        )
+        ignore_id = existing["id"]
+    else:
+        cur = conn.execute(
+            "INSERT INTO ignored_findings (project_id, file, key, rule, value_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (project_id, file, key, rule, value_hash, now),
+        )
+        ignore_id = cur.lastrowid
     conn.commit()
-    ignore_id = cur.lastrowid
     conn.close()
     return ignore_id
 
@@ -149,7 +175,7 @@ def remove_ignore(ignore_id):
 def list_ignores(project_id):
     conn = get_conn()
     rows = conn.execute(
-        "SELECT id, project_id, file, key, rule, created_at FROM ignored_findings WHERE project_id = ? ORDER BY created_at DESC",
+        "SELECT id, project_id, file, key, rule, value_hash, created_at FROM ignored_findings WHERE project_id = ? ORDER BY created_at DESC",
         (project_id,),
     ).fetchall()
     conn.close()

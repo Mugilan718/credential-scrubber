@@ -12,6 +12,7 @@ Design principle unchanged: never modifies original files. Always writes
 to a separate output directory.
 """
 
+import hashlib
 import json
 import math
 import os
@@ -87,14 +88,32 @@ def looks_high_entropy(value, min_length=20, min_entropy=3.5):
     return shannon_entropy(v) >= min_entropy
 
 
-def is_ignored(ignore_set, filename, key, rule):
-    """True if the user has marked this (file, key, rule) finding as ignored.
+def hash_value(value):
+    """One-way hash of a value being ignored, so ignored_findings never has
+    to store (or let anyone recover) the real secret it's suppressing."""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
-    Scoped to the triple only (no line number), matching ignored_findings'
-    schema - ignoring one occurrence suppresses every finding in that file
-    sharing the same key and rule, not just one specific line.
+
+def check_ignore(ignore_map, filename, key, rule, value):
+    """Check whether a (file, key, rule) finding is currently ignored.
+
+    `ignore_map` is {(file, key, rule): value_hash_or_None}. Returns
+    (suppress, previously_ignored_but_changed):
+      - not ignored at all                          -> (False, False)
+      - ignored AND value's hash matches              -> (True,  False)  suppress
+      - ignored BUT value's hash differs (or was never
+        recorded, e.g. an older ignore)               -> (False, True)   don't
+        suppress - the value changed since it was marked safe, so redact and
+        report it as usual, just flagged for review instead of looking like
+        a brand-new finding with no context.
     """
-    return (filename, key, rule) in ignore_set
+    triple = (filename, key, rule)
+    if triple not in ignore_map:
+        return False, False
+    stored_hash = ignore_map[triple]
+    if stored_hash is not None and stored_hash == hash_value(value):
+        return True, False
+    return False, True
 
 
 def find_key_value(line):
@@ -118,10 +137,10 @@ def quoted_mask(value):
     return MASK
 
 
-def redact_config_line(line, rules, report_entries, filename, line_no, ignore_set=frozenset()):
+def redact_config_line(line, rules, report_entries, filename, line_no, ignore_map={}):
     key, value = find_key_value(line)
     if key is None:
-        return redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_set)
+        return redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map)
 
     if value.strip() == "":
         return line
@@ -130,11 +149,15 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_se
 
     # Key-name match ALWAYS redacts, placeholder allow-list does not apply here.
     if key_matched:
-        if is_ignored(ignore_set, filename, key, "key_name_match"):
+        suppress, changed = check_ignore(ignore_map, filename, key, "key_name_match", value)
+        if suppress:
             return line
         replacement = quoted_mask(value)
-        report_entries.append({"file": filename, "line": line_no, "key": key, "rule": "key_name_match",
-                                "before": value, "after": replacement})
+        entry = {"file": filename, "line": line_no, "key": key, "rule": "key_name_match",
+                  "before": value, "after": replacement}
+        if changed:
+            entry["previously_ignored_value_changed"] = True
+        report_entries.append(entry)
         new_line = line.replace(value, replacement, 1) if value in line else f"{key}={replacement}"
         return new_line
 
@@ -150,34 +173,42 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_se
 
     if value_matched_name or entropy_flag:
         reason = value_matched_name or "high_entropy"
-        if is_ignored(ignore_set, filename, key, reason):
+        suppress, changed = check_ignore(ignore_map, filename, key, reason, value)
+        if suppress:
             return line
         replacement = quoted_mask(value)
-        report_entries.append({"file": filename, "line": line_no, "key": key, "rule": reason,
-                                "before": value, "after": replacement})
+        entry = {"file": filename, "line": line_no, "key": key, "rule": reason,
+                  "before": value, "after": replacement}
+        if changed:
+            entry["previously_ignored_value_changed"] = True
+        report_entries.append(entry)
         new_line = line.replace(value, replacement, 1) if value in line else f"{key}={replacement}"
         return new_line
 
     return line
 
 
-def redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_set=frozenset()):
+def redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map={}):
     modified = line
     for name, pattern in rules["value_patterns"]:
         m = pattern.search(modified)
         if m:
             if is_placeholder(m.group(0), rules["placeholder_allowlist"]):
                 continue
-            if is_ignored(ignore_set, filename, None, name):
-                continue
             before_val = m.group(0)
+            suppress, changed = check_ignore(ignore_map, filename, None, name, before_val)
+            if suppress:
+                continue
             modified = pattern.sub(MASK, modified)
-            report_entries.append({"file": filename, "line": line_no, "key": None, "rule": name,
-                                    "before": before_val, "after": MASK})
+            entry = {"file": filename, "line": line_no, "key": None, "rule": name,
+                      "before": before_val, "after": MASK}
+            if changed:
+                entry["previously_ignored_value_changed"] = True
+            report_entries.append(entry)
     return modified
 
 
-def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignore_set=frozenset()):
+def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignore_map={}):
     modified = line
     patterns = rules["code_patterns"].get(lang, [])
 
@@ -187,25 +218,33 @@ def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignor
             literal_value = match.group(1)
             if literal_value.strip() == "":
                 continue
-            if is_ignored(ignore_set, filename, "code_literal", "code_variable_pattern"):
+            suppress, changed = check_ignore(ignore_map, filename, "code_literal", "code_variable_pattern", literal_value)
+            if suppress:
                 continue
             # variable/key name matched a suspicious pattern already (that's why this
             # code_pattern fired) -> always redact, placeholder allow-list doesn't apply
             modified = modified[:match.start(1)] + MASK + modified[match.end(1):]
-            report_entries.append({"file": filename, "line": line_no, "key": "code_literal",
-                                    "rule": "code_variable_pattern", "before": literal_value, "after": MASK})
+            entry = {"file": filename, "line": line_no, "key": "code_literal",
+                      "rule": "code_variable_pattern", "before": literal_value, "after": MASK}
+            if changed:
+                entry["previously_ignored_value_changed"] = True
+            report_entries.append(entry)
 
     for name, pattern in rules["value_patterns"]:
         m = pattern.search(modified)
         if m and MASK not in m.group(0):
             if is_placeholder(m.group(0), rules["placeholder_allowlist"]):
                 continue
-            if is_ignored(ignore_set, filename, None, name):
-                continue
             before_val = m.group(0)
+            suppress, changed = check_ignore(ignore_map, filename, None, name, before_val)
+            if suppress:
+                continue
             modified = pattern.sub(MASK, modified)
-            report_entries.append({"file": filename, "line": line_no, "key": None, "rule": name,
-                                    "before": before_val, "after": MASK})
+            entry = {"file": filename, "line": line_no, "key": None, "rule": name,
+                      "before": before_val, "after": MASK}
+            if changed:
+                entry["previously_ignored_value_changed"] = True
+            report_entries.append(entry)
 
     return modified
 
@@ -232,7 +271,7 @@ def find_key_matches(name, rules):
     return any(p.search(name) for p in rules["key_patterns"])
 
 
-def scan_multiline_python(lines, rules, report_entries, filename, ignore_set=frozenset()):
+def scan_multiline_python(lines, rules, report_entries, filename, ignore_map={}):
     """Detect and redact `var = (\n "frag" \n "frag" \n)` across physical lines."""
     i = 0
     n = len(lines)
@@ -260,16 +299,20 @@ def scan_multiline_python(lines, rules, report_entries, filename, ignore_set=fro
                     if key_hit or not is_placeholder(joined, rules["placeholder_allowlist"]):
                         reason = "key_name_match" if key_hit else (value_hit or "high_entropy")
                         rule = f"multiline_concat_{reason}"
-                        if not is_ignored(ignore_set, filename, var_name, rule):
+                        suppress, changed = check_ignore(ignore_map, filename, var_name, rule, joined)
+                        if not suppress:
                             for idx, frag in zip(frag_indices, fragments):
                                 lines[idx] = re.sub(r'(["\'])[^"\']*\1', lambda mm: mm.group(1) + MASK + mm.group(1), lines[idx], count=1)
-                                report_entries.append({"file": filename, "line": idx + 1, "key": var_name,
-                                                        "rule": rule, "before": frag, "after": MASK})
+                                entry = {"file": filename, "line": idx + 1, "key": var_name,
+                                          "rule": rule, "before": frag, "after": MASK}
+                                if changed:
+                                    entry["previously_ignored_value_changed"] = True
+                                report_entries.append(entry)
         i += 1
     return lines
 
 
-def scan_multiline_plus(lines, rules, report_entries, filename, ignore_set=frozenset()):
+def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}):
     """
     Detect and redact string concatenation spanning multiple physical lines,
     in either style:
@@ -333,16 +376,20 @@ def scan_multiline_plus(lines, rules, report_entries, filename, ignore_set=froze
                     if key_hit or not is_placeholder(joined, rules["placeholder_allowlist"]):
                         reason = "key_name_match" if key_hit else (value_hit or "high_entropy")
                         rule = f"multiline_concat_{reason}"
-                        if not is_ignored(ignore_set, filename, var_name, rule):
+                        suppress, changed = check_ignore(ignore_map, filename, var_name, rule, joined)
+                        if not suppress:
                             for idx, frag in zip(frag_indices, fragments):
                                 lines[idx] = re.sub(r'(["\'])[^"\']*\1', lambda mm: mm.group(1) + MASK + mm.group(1), lines[idx], count=1)
-                                report_entries.append({"file": filename, "line": idx + 1, "key": var_name,
-                                                        "rule": rule, "before": frag, "after": MASK})
+                                entry = {"file": filename, "line": idx + 1, "key": var_name,
+                                          "rule": rule, "before": frag, "after": MASK}
+                                if changed:
+                                    entry["previously_ignored_value_changed"] = True
+                                report_entries.append(entry)
         i += 1
     return lines
 
 
-def process_file(src_path, rel_path, rules, report_entries, classification, ignore_set=frozenset()):
+def process_file(src_path, rel_path, rules, report_entries, classification, ignore_map={}):
     try:
         with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
@@ -352,30 +399,30 @@ def process_file(src_path, rel_path, rules, report_entries, classification, igno
     ext = src_path.suffix.lower()
 
     if classification == "config":
-        output_lines = [redact_config_line(l, rules, report_entries, str(rel_path), i + 1, ignore_set) for i, l in enumerate(lines)]
+        output_lines = [redact_config_line(l, rules, report_entries, str(rel_path), i + 1, ignore_map) for i, l in enumerate(lines)]
         return "".join(output_lines), None
 
     if classification.startswith("code:"):
         lang = classification.split(":", 1)[1]
 
         if ext == ".py":
-            lines = scan_multiline_python(lines, rules, report_entries, str(rel_path), ignore_set)
+            lines = scan_multiline_python(lines, rules, report_entries, str(rel_path), ignore_map)
         if lang in PLUS_CONCAT_LANGS:
-            lines = scan_multiline_plus(lines, rules, report_entries, str(rel_path), ignore_set)
+            lines = scan_multiline_plus(lines, rules, report_entries, str(rel_path), ignore_map)
 
         output_lines = []
         for i, l in enumerate(lines):
             if MASK in l:
                 output_lines.append(l)  # already redacted by multiline handler, don't double-process
             else:
-                output_lines.append(redact_code_line(l, lang, rules, report_entries, str(rel_path), i + 1, ignore_set))
+                output_lines.append(redact_code_line(l, lang, rules, report_entries, str(rel_path), i + 1, ignore_map))
         return "".join(output_lines), None
 
-    output_lines = [redact_value_patterns_only(l, rules, report_entries, str(rel_path), i + 1, ignore_set) for i, l in enumerate(lines)]
+    output_lines = [redact_value_patterns_only(l, rules, report_entries, str(rel_path), i + 1, ignore_map) for i, l in enumerate(lines)]
     return "".join(output_lines), None
 
 
-def scan_project(input_dir, output_dir, rules, ignore_set=frozenset()):
+def scan_project(input_dir, output_dir, rules, ignore_map={}):
     input_dir = Path(input_dir).resolve()
     output_dir = Path(output_dir).resolve()
 
@@ -398,7 +445,7 @@ def scan_project(input_dir, output_dir, rules, ignore_set=frozenset()):
 
             classification = classify_file(src_path)
             if classification is not None:
-                content, error = process_file(src_path, rel_path, rules, report_entries, classification, ignore_set)
+                content, error = process_file(src_path, rel_path, rules, report_entries, classification, ignore_map)
                 if error:
                     files_skipped.append(str(rel_path))
                     shutil.copy2(src_path, dest_path)

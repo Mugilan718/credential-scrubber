@@ -176,11 +176,15 @@ async function loadReport(scanId, animate) {
       <div>Line</div><div>File</div><div>Value</div><div>Rule</div><div>Key / Variable</div><div></div>
     </div>`;
   data.entries.forEach((e) => {
-    html += `<div class="result-row" data-file="${escapeHtml(e.file)}" data-key="${escapeHtml(e.key || "")}" data-rule="${escapeHtml(e.rule)}" style="grid-template-columns: ${cols};">
+    const flagged = e.previously_ignored_value_changed;
+    const ruleTitle = flagged
+      ? `${e.rule} \u2014 previously ignored, but the value changed since; please review`
+      : e.rule;
+    html += `<div class="result-row${flagged ? " flagged-changed" : ""}" data-file="${escapeHtml(e.file)}" data-key="${escapeHtml(e.key || "")}" data-rule="${escapeHtml(e.rule)}" style="grid-template-columns: ${cols};">
         <div class="result-line-no">${e.line}</div>
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
         <div><span class="redaction-bar">REDACTED</span></div>
-        <div class="result-rule">${escapeHtml(e.rule)}</div>
+        <div class="result-rule" title="${escapeHtml(ruleTitle)}">${escapeHtml(e.rule)}${flagged ? ' <span class="changed-badge">\u26a0 changed</span>' : ""}</div>
         <div class="result-key">${escapeHtml(e.key || "\u2014")}</div>
         <div><button class="btn-ignore">Ignore</button></div>
       </div>`;
@@ -211,10 +215,14 @@ async function openSensitiveModal(scanId) {
       <div>Line</div><div>File</div><div>Rule</div><div>Before \u2192 After</div><div></div>
     </div>`;
   data.entries.forEach((e) => {
-    html += `<div class="result-row" data-file="${escapeHtml(e.file)}" data-key="${escapeHtml(e.key || "")}" data-rule="${escapeHtml(e.rule)}" style="grid-template-columns: ${cols};">
+    const flagged = e.previously_ignored_value_changed;
+    const ruleTitle = flagged
+      ? `${e.rule} \u2014 previously ignored, but the value changed since; please review`
+      : e.rule;
+    html += `<div class="result-row${flagged ? " flagged-changed" : ""}" data-file="${escapeHtml(e.file)}" data-key="${escapeHtml(e.key || "")}" data-rule="${escapeHtml(e.rule)}" style="grid-template-columns: ${cols};">
         <div class="result-line-no">${e.line}</div>
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
-        <div class="result-rule">${escapeHtml(e.rule)}</div>
+        <div class="result-rule" title="${escapeHtml(ruleTitle)}">${escapeHtml(e.rule)}${flagged ? ' <span class="changed-badge">\u26a0 changed</span>' : ""}</div>
         <div class="sensitive-value">${escapeHtml(e.before || "")} <span class="redaction-bar" style="color:#5B6B66;background:none;">\u2192</span> ${escapeHtml(e.after || "")}</div>
         <div><button class="btn-ignore">Ignore</button></div>
       </div>`;
@@ -275,15 +283,17 @@ async function loadIgnores(projectId) {
     return;
   }
 
-  const cols = "1fr 160px 180px 110px 90px";
+  const cols = "1fr 160px 180px 100px 110px 90px";
   let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
-      <div>File</div><div>Key / Variable</div><div>Rule</div><div>Ignored on</div><div></div>
+      <div>File</div><div>Key / Variable</div><div>Rule</div><div>Value tracked</div><div>Ignored on</div><div></div>
     </div>`;
   ignores.forEach((ig) => {
+    const tracked = !!ig.value_hash;
     html += `<div class="result-row" style="grid-template-columns: ${cols};">
         <div class="result-file" title="${escapeHtml(ig.file)}">${escapeHtml(ig.file)}</div>
         <div class="result-key">${escapeHtml(ig.key || "\u2014")}</div>
         <div class="result-rule">${escapeHtml(ig.rule)}</div>
+        <div class="result-key" title="${tracked ? "Will re-flag for review if the value changes" : "No value on record \u2014 will always re-flag for review, since a change can't be detected"}">${tracked ? "Yes" : "No"}</div>
         <div class="result-line-no">${new Date(ig.created_at).toLocaleDateString()}</div>
         <div><button class="btn-secondary btn-restore" data-id="${ig.id}">Restore</button></div>
       </div>`;

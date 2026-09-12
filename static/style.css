@@ -290,6 +290,21 @@ body {
 .result-row:last-child { border-bottom: none; }
 .result-row:nth-child(even) { background: #F0EDE4; }
 
+.result-row.flagged-changed {
+  border-left: 3px solid var(--stamp-red);
+  background: #F6E9E7;
+}
+.result-row.flagged-changed:nth-child(even) { background: #F2E2DF; }
+
+.changed-badge {
+  display: inline-block;
+  color: var(--stamp-red);
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 .result-line-no {
   color: var(--slate);
   font-size: 11px;

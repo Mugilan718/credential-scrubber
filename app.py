@@ -7,8 +7,10 @@ Then open: http://127.0.0.1:5057
 Everything runs locally. No data leaves this machine.
 """
 
+import argparse
 import copy
 import json
+import os
 import re
 import webbrowser
 import threading
@@ -33,7 +35,9 @@ def load_default_rules_dict():
 
 def strip_sensitive(entries):
     """Return report entries without 'before'/'after' raw values - safe to display/export by default."""
-    return [{"file": e["file"], "line": e["line"], "key": e.get("key"), "rule": e["rule"]} for e in entries]
+    return [{"file": e["file"], "line": e["line"], "key": e.get("key"), "rule": e["rule"],
+              "previously_ignored_value_changed": e.get("previously_ignored_value_changed", False)}
+            for e in entries]
 
 
 def _is_str_list(value):
@@ -177,11 +181,11 @@ def api_run_scan(project_id):
 
     compiled_rules = engine.load_rules(tmp_rules_path)
 
-    ignore_set = {(i["file"], i["key"], i["rule"]) for i in db.list_ignores(project_id)}
+    ignore_map = {(i["file"], i["key"], i["rule"]): i["value_hash"] for i in db.list_ignores(project_id)}
 
     try:
         report_entries, files_scanned, files_skipped = engine.scan_project(
-            project["input_path"], project["output_path"], compiled_rules, ignore_set
+            project["input_path"], project["output_path"], compiled_rules, ignore_map
         )
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 400
@@ -210,6 +214,27 @@ def api_list_ignores(project_id):
     return jsonify(db.list_ignores(project_id))
 
 
+def _lookup_current_value_hash(project_id, file, key, rule):
+    """Find this (file, key, rule) finding's raw value in the project's most
+    recent scan and hash it, so future scans can tell if the value has since
+    changed. Reuses the value the scan already captured (record_scan stores
+    full before/after, not just the stripped safe view) rather than asking
+    the client to send the real secret through this endpoint - the safe
+    results view's Ignore button never has the raw value to send anyway.
+    Returns None if there's no scan yet or no matching finding in it.
+    """
+    scans = db.list_scans(project_id)
+    if not scans:
+        return None
+    latest = db.get_scan_report(scans[0]["id"])
+    if not latest:
+        return None
+    for entry in latest["report"]:
+        if entry["file"] == file and entry.get("key") == key and entry["rule"] == rule:
+            return engine.hash_value(entry["before"])
+    return None
+
+
 @app.route("/api/projects/<int:project_id>/ignore", methods=["POST"])
 def api_add_ignore(project_id):
     project = db.get_project(project_id)
@@ -219,9 +244,10 @@ def api_add_ignore(project_id):
     error = validate_ignore_body(data)
     if error:
         return jsonify({"error": error}), 400
-    ignore_id = db.add_ignore(project_id, data["file"], data.get("key"), data["rule"])
+    value_hash = _lookup_current_value_hash(project_id, data["file"], data.get("key"), data["rule"])
+    ignore_id = db.add_ignore(project_id, data["file"], data.get("key"), data["rule"], value_hash)
     return jsonify({"id": ignore_id, "project_id": project_id, "file": data["file"],
-                     "key": data.get("key"), "rule": data["rule"]}), 201
+                     "key": data.get("key"), "rule": data["rule"], "value_hash": value_hash}), 201
 
 
 @app.route("/api/projects/<int:project_id>/ignore/<int:ignore_id>", methods=["DELETE"])
@@ -274,6 +300,14 @@ def open_browser():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-browser", action="store_true",
+                         help="Don't auto-open a browser tab on startup")
+    args = parser.parse_args()
+
+    no_browser = args.no_browser or os.environ.get("CREDENTIAL_SCRUBBER_NO_BROWSER", "") not in ("", "0")
+
     db.init_db()
-    threading.Timer(1.0, open_browser).start()
+    if not no_browser:
+        threading.Timer(1.0, open_browser).start()
     app.run(host="127.0.0.1", port=5057, debug=False)
