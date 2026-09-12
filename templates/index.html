@@ -22,7 +22,7 @@
     <div class="drawer-section">
       <div class="drawer-section-title">
         <span>Case files</span>
-        <button id="newProjectBtn" class="btn-icon" title="Add project">+</button>
+        <button id="newProjectBtn" class="btn-icon" title="Add project"></button>
       </div>
       <ul id="projectList" class="project-list"></ul>
     </div>
@@ -46,15 +46,15 @@
             <input type="checkbox" id="changedOnlyToggle" />
             Only scan changed files (git)
           </label>
-          <button id="editRulesBtn" class="btn-secondary">Edit rules</button>
-          <button id="scanBtn" class="btn-primary">Run scan</button>
+          <button id="editRulesBtn" class="btn-secondary"></button>
+          <button id="scanBtn" class="btn-primary"></button>
         </div>
       </header>
 
       <nav class="tabs">
-        <button class="tab-btn active" data-tab="results">Results</button>
-        <button class="tab-btn" data-tab="history">Scan history</button>
-        <button class="tab-btn" data-tab="ignored">Ignored findings</button>
+        <button class="tab-btn active" data-tab="results"></button>
+        <button class="tab-btn" data-tab="history"></button>
+        <button class="tab-btn" data-tab="ignored"></button>
       </nav>
 
       <section id="tab-results" class="tab-panel active">
@@ -92,19 +92,19 @@
     <label>Folder to scan (full path)
       <div class="input-with-button">
         <input type="text" id="projInput" placeholder="e.g. D:\projects\checkout-service" />
-        <button type="button" class="btn-secondary btn-browse" id="browseInputBtn">Browse&hellip;</button>
+        <button type="button" class="btn-secondary btn-browse" id="browseInputBtn"></button>
       </div>
     </label>
     <label>Output folder for sanitized copy (full path)
       <div class="input-with-button">
         <input type="text" id="projOutput" placeholder="e.g. D:\projects\checkout-service-sanitized" />
-        <button type="button" class="btn-secondary btn-browse" id="browseOutputBtn">Browse&hellip;</button>
+        <button type="button" class="btn-secondary btn-browse" id="browseOutputBtn"></button>
       </div>
     </label>
     <p class="modal-error hidden" id="projModalError"></p>
     <div class="modal-actions">
       <button class="btn-secondary" id="cancelProjectBtn">Cancel</button>
-      <button class="btn-primary" id="saveProjectBtn">Create</button>
+      <button class="btn-primary" id="saveProjectBtn"></button>
     </div>
   </div>
 </div>
@@ -131,7 +131,7 @@
     <p class="modal-error hidden" id="rulesModalError"></p>
     <div class="modal-actions">
       <button class="btn-secondary" id="cancelRulesBtn">Cancel</button>
-      <button class="btn-primary" id="saveRulesBtn">Save rules</button>
+      <button class="btn-primary" id="saveRulesBtn"></button>
     </div>
   </div>
 </div>
@@ -140,16 +140,17 @@
 <div class="modal-overlay hidden" id="sensitiveModalOverlay">
   <div class="modal modal-wide">
     <div class="sensitive-warning">
-      <strong>Warning &mdash; this view contains real secret values.</strong>
+      <strong id="sensitiveWarningHeading">Warning &mdash; this view contains real secret values.</strong>
       <p>Do not share your screen, screenshot, or copy this elsewhere. This is for your own review only.</p>
     </div>
     <div id="sensitiveTable" class="results-table"></div>
     <div class="modal-actions">
-      <button class="btn-secondary" id="closeSensitiveBtn">Close</button>
+      <button class="btn-secondary" id="closeSensitiveBtn"></button>
     </div>
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='icons.js') }}"></script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

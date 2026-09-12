@@ -16,6 +16,27 @@ async function api(path, options = {}) {
   return data;
 }
 
+// ---------- Static icon labels ----------
+// Buttons defined in index.html are left as empty shells (id + class only)
+// so their icon+label markup lives in one place (icons.js) instead of being
+// duplicated as raw inline SVG inside the Jinja template.
+
+function initStaticIcons() {
+  el("newProjectBtn").innerHTML = icon("plus", { size: 16 });
+  el("editRulesBtn").innerHTML = `${icon("pencil")} Edit rules`;
+  el("scanBtn").innerHTML = `${icon("play")} Run scan`;
+  el("browseInputBtn").innerHTML = `${icon("folder-open")} Browse&hellip;`;
+  el("browseOutputBtn").innerHTML = `${icon("folder-open")} Browse&hellip;`;
+  el("saveProjectBtn").innerHTML = `${icon("check")} Create`;
+  el("saveRulesBtn").innerHTML = `${icon("check")} Save rules`;
+  el("closeSensitiveBtn").innerHTML = `${icon("eye-off")} Close`;
+  el("sensitiveWarningHeading").innerHTML = `${icon("alert")} Warning — this view contains real secret values.`;
+
+  document.querySelector('.tab-btn[data-tab="results"]').innerHTML = `${icon("list")} Results`;
+  document.querySelector('.tab-btn[data-tab="history"]').innerHTML = `${icon("clock")} Scan history`;
+  document.querySelector('.tab-btn[data-tab="ignored"]').innerHTML = `${icon("shield")} Ignored findings`;
+}
+
 // ---------- Projects ----------
 
 async function loadProjects() {
@@ -34,11 +55,34 @@ function renderProjectList() {
   state.projects.forEach((p) => {
     const li = document.createElement("li");
     li.className = "project-item" + (p.id === state.activeProjectId ? " active" : "");
-    li.innerHTML = `<div class="project-item-name">${escapeHtml(p.name)}</div>
-                    <div class="project-item-path">${escapeHtml(p.input_path)}</div>`;
+    li.innerHTML = `<div class="project-item-main">
+                      <div class="project-item-name">${escapeHtml(p.name)}</div>
+                      <div class="project-item-path">${escapeHtml(p.input_path)}</div>
+                    </div>
+                    <button class="btn-icon btn-delete-project" title="Delete project">${icon("trash", { size: 14 })}</button>`;
     li.onclick = () => selectProject(p.id);
+    li.querySelector(".btn-delete-project").onclick = (ev) => {
+      ev.stopPropagation();
+      deleteProject(p.id, p.name);
+    };
     list.appendChild(li);
   });
+}
+
+async function deleteProject(projectId, name) {
+  if (!confirm(`Delete "${name}"? This removes its scan history and ignore list. The scanned folders themselves are untouched.`)) {
+    return;
+  }
+  try {
+    await api(`/api/projects/${projectId}`, { method: "DELETE" });
+    if (state.activeProjectId === projectId) {
+      state.activeProjectId = null;
+    }
+    await loadProjects();
+    showToast("Project deleted.");
+  } catch (e) {
+    showToast("Failed to delete project: " + e.message, true);
+  }
 }
 
 function showEmptyState() {
@@ -107,9 +151,9 @@ el("saveProjectBtn").onclick = async () => {
 // dialog isn't wanted.
 async function browseForFolder(inputId, btnId) {
   const btn = el(btnId);
-  const originalText = btn.textContent;
+  const originalHtml = btn.innerHTML;
   btn.disabled = true;
-  btn.textContent = "Waiting…";
+  btn.innerHTML = `${icon("spinner", { class: "spin" })} Waiting&hellip;`;
   try {
     const result = await api("/api/browse-folder", { method: "POST" });
     if (result.path) {
@@ -120,7 +164,7 @@ async function browseForFolder(inputId, btnId) {
     el("projModalError").classList.remove("hidden");
   } finally {
     btn.disabled = false;
-    btn.textContent = originalText;
+    btn.innerHTML = originalHtml;
   }
 }
 
@@ -162,7 +206,7 @@ el("scanBtn").onclick = async () => {
   const btn = el("scanBtn");
   const changedOnly = el("changedOnlyToggle").checked;
   btn.disabled = true;
-  btn.textContent = "Scanning\u2026";
+  btn.innerHTML = `${icon("spinner", { class: "spin" })} Scanning&hellip;`;
   try {
     const result = await api(`/api/projects/${state.activeProjectId}/scan`, {
       method: "POST",
@@ -176,7 +220,7 @@ el("scanBtn").onclick = async () => {
     alert("Scan failed: " + e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = "Run scan";
+    btn.innerHTML = `${icon("play")} Run scan`;
   }
 };
 
@@ -227,11 +271,11 @@ async function loadReport(scanId, animate) {
         <div><span class="redaction-bar">REDACTED</span></div>
         <div class="result-rule" title="${escapeHtml(ruleTitle)}">${escapeHtml(e.rule)}${flagged ? ' <span class="changed-badge">\u26a0 changed</span>' : ""}</div>
         <div class="result-key">${escapeHtml(e.key || "\u2014")}</div>
-        <div><button class="btn-ignore">Ignore</button></div>
+        <div><button class="btn-ignore" title="Ignore this finding">${icon("x", { size: 14 })}</button></div>
       </div>`;
   });
   html += `<div class="reveal-sensitive-row">
-      <button class="btn-secondary" id="revealSensitiveBtn">Reveal original values (sensitive)</button>
+      <button class="btn-secondary" id="revealSensitiveBtn">${icon("eye")} Reveal original values (sensitive)</button>
     </div>`;
   table.innerHTML = html;
 
@@ -265,7 +309,7 @@ async function openSensitiveModal(scanId) {
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
         <div class="result-rule" title="${escapeHtml(ruleTitle)}">${escapeHtml(e.rule)}${flagged ? ' <span class="changed-badge">\u26a0 changed</span>' : ""}</div>
         <div class="sensitive-value">${escapeHtml(e.before || "")} <span class="redaction-bar" style="color:#5B6B66;background:none;">\u2192</span> ${escapeHtml(e.after || "")}</div>
-        <div><button class="btn-ignore">Ignore</button></div>
+        <div><button class="btn-ignore" title="Ignore this finding">${icon("x", { size: 14 })}</button></div>
       </div>`;
   });
   const sensitiveTable = el("sensitiveTable");
@@ -336,7 +380,7 @@ async function loadIgnores(projectId) {
         <div class="result-rule">${escapeHtml(ig.rule)}</div>
         <div class="result-key" title="${tracked ? "Will re-flag for review if the value changes" : "No value on record \u2014 will always re-flag for review, since a change can't be detected"}">${tracked ? "Yes" : "No"}</div>
         <div class="result-line-no">${new Date(ig.created_at).toLocaleDateString()}</div>
-        <div><button class="btn-secondary btn-restore" data-id="${ig.id}">Restore</button></div>
+        <div><button class="btn-secondary btn-restore" data-id="${ig.id}" title="Restore this finding">${icon("undo", { size: 14 })}</button></div>
       </div>`;
   });
   list.innerHTML = html;
@@ -383,7 +427,7 @@ async function loadScanHistory(projectId) {
       <span>${new Date(s.timestamp).toLocaleString()}</span>
       <span>${s.files_scanned} files</span>
       <span class="history-row-count">${s.total_redactions} redactions</span>
-      <button class="btn-secondary" onclick="viewHistoricalScan(${s.id})">View</button>
+      <button class="btn-secondary" onclick="viewHistoricalScan(${s.id})">View ${icon("chevron-right", { size: 14 })}</button>
     </div>
   `).join("");
 }
@@ -421,4 +465,5 @@ function postProcessMask() {
   document.querySelectorAll(".result-row").forEach((row) => {});
 }
 
+initStaticIcons();
 loadProjects();
