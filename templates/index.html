@@ -30,9 +30,10 @@
 
   <main class="main-panel" id="mainPanel">
     <div class="empty-state" id="emptyState">
+      <div class="empty-state-icon" id="emptyStateIcon"></div>
       <div class="stamp">NO CASE SELECTED</div>
       <p>Add a project folder to begin scanning for exposed credentials.</p>
-      <button id="emptyAddBtn" class="btn-primary">Add your first project</button>
+      <button id="emptyAddBtn" class="btn-primary"></button>
     </div>
 
     <div class="project-view hidden" id="projectView">
@@ -60,7 +61,15 @@
       <section id="tab-results" class="tab-panel active">
         <div id="scanSummary" class="scan-summary hidden"></div>
         <div id="partialOutputWarning" class="sensitive-warning hidden"></div>
+        <div id="resultsLoading" class="skeleton-block hidden">
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+          <div class="skeleton-row"></div>
+        </div>
         <div id="resultsEmpty" class="results-empty">
+          <div class="results-empty-icon" id="resultsEmptyIcon"></div>
           <p>No scan run yet for this project.</p>
         </div>
         <div id="resultsTable" class="results-table hidden"></div>
@@ -73,6 +82,7 @@
       <section id="tab-ignored" class="tab-panel">
         <p class="modal-hint">Ignored findings are skipped entirely on the next scan - no redaction, no report entry - until restored.</p>
         <div id="ignoredEmpty" class="results-empty">
+          <div class="results-empty-icon" id="ignoredEmptyIcon"></div>
           <p>No findings ignored for this project.</p>
         </div>
         <div id="ignoredList" class="results-table hidden"></div>

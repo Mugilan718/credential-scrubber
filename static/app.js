@@ -31,6 +31,10 @@ function initStaticIcons() {
   el("saveRulesBtn").innerHTML = `${icon("check")} Save rules`;
   el("closeSensitiveBtn").innerHTML = `${icon("eye-off")} Close`;
   el("sensitiveWarningHeading").innerHTML = `${icon("alert")} Warning — this view contains real secret values.`;
+  el("emptyAddBtn").innerHTML = `${icon("plus")} Add your first project`;
+  el("emptyStateIcon").innerHTML = icon("folder-git", { size: 40 });
+  el("resultsEmptyIcon").innerHTML = icon("inbox", { size: 30 });
+  el("ignoredEmptyIcon").innerHTML = icon("shield", { size: 30 });
 
   document.querySelector('.tab-btn[data-tab="results"]').innerHTML = `${icon("list")} Results`;
   document.querySelector('.tab-btn[data-tab="history"]').innerHTML = `${icon("clock")} Scan history`;
@@ -102,6 +106,7 @@ async function selectProject(projectId) {
 
   renderProjectList();
   el("resultsTable").classList.add("hidden");
+  el("resultsLoading").classList.add("hidden");
   el("resultsEmpty").classList.remove("hidden");
   el("scanSummary").classList.add("hidden");
   el("partialOutputWarning").classList.add("hidden");
@@ -207,6 +212,9 @@ el("scanBtn").onclick = async () => {
   const changedOnly = el("changedOnlyToggle").checked;
   btn.disabled = true;
   btn.innerHTML = `${icon("spinner", { class: "spin" })} Scanning&hellip;`;
+  el("resultsEmpty").classList.add("hidden");
+  el("resultsTable").classList.add("hidden");
+  el("resultsLoading").classList.remove("hidden");
   try {
     const result = await api(`/api/projects/${state.activeProjectId}/scan`, {
       method: "POST",
@@ -215,8 +223,10 @@ el("scanBtn").onclick = async () => {
     state.activeScanId = result.scan_id;
     renderScanSummary(result);
     await loadReport(result.scan_id, true);
+    el("resultsLoading").classList.add("hidden");
     await loadScanHistory(state.activeProjectId);
   } catch (e) {
+    el("resultsLoading").classList.add("hidden");
     alert("Scan failed: " + e.message);
   } finally {
     btn.disabled = false;
@@ -419,7 +429,7 @@ async function loadScanHistory(projectId) {
   const scans = await api(`/api/projects/${projectId}/scans`);
   const list = el("historyList");
   if (!scans.length) {
-    list.innerHTML = `<p class="results-empty">No scans yet.</p>`;
+    list.innerHTML = `<div class="results-empty"><div class="results-empty-icon">${icon("clock", { size: 30 })}</div><p>No scans yet.</p></div>`;
     return;
   }
   list.innerHTML = scans.map((s) => `
