@@ -300,11 +300,18 @@ body {
 
 .project-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-start;
+  gap: var(--space-3) var(--space-6);
   margin-bottom: var(--space-6);
   padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--line-strong);
+}
+
+.project-header > div:first-child {
+  min-width: 0;
+  flex: 1 1 260px;
 }
 
 .project-header h2 {
@@ -312,6 +319,7 @@ body {
   font-size: 26px;
   line-height: 1.2;
   margin: 0 0 var(--space-1) 0;
+  overflow-wrap: break-word;
 }
 
 .project-path {
@@ -319,9 +327,10 @@ body {
   font-size: 12px;
   color: var(--slate);
   margin: 0;
+  overflow-wrap: break-word;
 }
 
-.header-actions { display: flex; gap: var(--space-3); align-items: center; }
+.header-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
 
 .changed-only-toggle {
   display: flex;
@@ -340,6 +349,7 @@ body {
 
 .tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-1);
   margin-bottom: var(--space-4);
   border-bottom: 1px solid var(--line);
@@ -463,7 +473,7 @@ body {
   border: 1px solid var(--line-strong);
   border-radius: 3px;
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 .result-row {
@@ -476,6 +486,7 @@ body {
   font-family: var(--mono);
   font-size: 12.5px;
   background: var(--paper-raised);
+  min-width: 700px;
 }
 
 .result-row:last-child { border-bottom: none; }
@@ -557,6 +568,7 @@ body {
   color: var(--slate);
   background: var(--paper);
   border-bottom: 1px solid var(--line-strong);
+  min-width: 700px;
 }
 
 .reveal-sensitive-row {
