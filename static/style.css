@@ -11,6 +11,16 @@
   --mono: 'IBM Plex Mono', monospace;
   --sans: 'IBM Plex Sans', sans-serif;
   --slab: 'Roboto Slab', serif;
+
+  /* Spacing scale - 4px base unit. Use these for margin/padding/gap instead
+     of ad-hoc pixel values, so spacing reads as intentional throughout. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
 }
 
 * { box-sizing: border-box; }
@@ -38,17 +48,18 @@ body {
   flex-shrink: 0;
   background: var(--paper-raised);
   border-right: 1px solid var(--line-strong);
-  padding: 28px 22px;
+  padding: var(--space-8) var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: var(--space-8);
 }
 
 .drawer-header h1 {
   font-family: var(--slab);
   font-size: 22px;
   font-weight: 700;
-  margin: 0 0 6px 0;
+  line-height: 1.15;
+  margin: 0 0 var(--space-2) 0;
   letter-spacing: -0.01em;
 }
 
@@ -58,6 +69,7 @@ body {
   color: var(--slate);
   margin: 0;
   line-height: 1.4;
+  letter-spacing: 0.01em;
 }
 
 .drawer-section-title {
@@ -66,9 +78,10 @@ body {
   justify-content: space-between;
   font-family: var(--mono);
   font-size: 12px;
+  letter-spacing: 0.03em;
   color: var(--slate);
-  margin-bottom: 10px;
-  padding-bottom: 8px;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--line);
 }
 
@@ -78,15 +91,15 @@ body {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .project-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px 10px;
+  gap: var(--space-2);
+  padding: var(--space-3);
   border-radius: 2px;
   cursor: pointer;
   border-left: 3px solid transparent;
@@ -136,7 +149,7 @@ body {
 
 .main-panel {
   flex: 1;
-  padding: 40px 48px;
+  padding: var(--space-8) var(--space-12);
   overflow-y: auto;
 }
 
@@ -156,15 +169,16 @@ body {
   letter-spacing: 0.06em;
   color: var(--stamp-red);
   border: 2px solid var(--stamp-red);
-  padding: 6px 14px;
+  padding: var(--space-2) var(--space-4);
   border-radius: 3px;
   transform: rotate(-2deg);
-  margin-bottom: 18px;
+  margin-bottom: var(--space-4);
 }
 
 .empty-state p {
   color: var(--ink-soft);
-  margin-bottom: 22px;
+  margin-bottom: var(--space-6);
+  line-height: 1.6;
 }
 
 /* ---------- Buttons ---------- */
@@ -173,11 +187,11 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: var(--space-2);
   font-family: var(--sans);
   font-size: 14px;
   font-weight: 500;
-  padding: 9px 18px;
+  padding: var(--space-3) var(--space-4);
   border-radius: 3px;
   border: 1px solid transparent;
   cursor: pointer;
@@ -232,15 +246,16 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 24px;
-  padding-bottom: 20px;
+  margin-bottom: var(--space-6);
+  padding-bottom: var(--space-4);
   border-bottom: 1px solid var(--line-strong);
 }
 
 .project-header h2 {
   font-family: var(--slab);
   font-size: 26px;
-  margin: 0 0 4px 0;
+  line-height: 1.2;
+  margin: 0 0 var(--space-1) 0;
 }
 
 .project-path {
@@ -250,18 +265,18 @@ body {
   margin: 0;
 }
 
-.header-actions { display: flex; gap: 10px; align-items: center; }
+.header-actions { display: flex; gap: var(--space-3); align-items: center; }
 
 .changed-only-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   font-family: var(--sans);
   font-size: 12.5px;
   color: var(--ink-soft);
   cursor: pointer;
   user-select: none;
-  margin-right: 4px;
+  margin-right: var(--space-1);
 }
 .changed-only-toggle input[type="checkbox"] {
   cursor: pointer;
@@ -269,21 +284,22 @@ body {
 
 .tabs {
   display: flex;
-  gap: 4px;
-  margin-bottom: 20px;
+  gap: var(--space-1);
+  margin-bottom: var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 
 .tab-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-2);
   font-family: var(--mono);
   font-size: 12.5px;
+  letter-spacing: 0.02em;
   background: none;
   border: none;
-  padding: 10px 4px;
-  margin-right: 20px;
+  padding: var(--space-3) var(--space-1);
+  margin-right: var(--space-4);
   color: var(--slate);
   cursor: pointer;
   border-bottom: 2px solid transparent;
@@ -306,10 +322,10 @@ body {
   background: var(--paper-raised);
   border: 1px solid var(--line);
   border-radius: 3px;
-  padding: 14px 18px;
-  margin-bottom: 20px;
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
   display: flex;
-  gap: 28px;
+  gap: var(--space-6);
 }
 
 .scan-summary strong {
@@ -334,14 +350,14 @@ body {
   background: var(--paper);
   border: 1px solid var(--line-strong);
   border-radius: 3px;
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-2);
 }
 
 .results-empty {
   color: var(--slate);
   font-family: var(--mono);
   font-size: 13px;
-  padding: 40px 0;
+  padding: var(--space-8) 0;
   text-align: center;
 }
 
@@ -356,9 +372,9 @@ body {
 .result-row {
   display: grid;
   grid-template-columns: 42px 1fr 90px 160px;
-  column-gap: 12px;
+  column-gap: var(--space-3);
   align-items: center;
-  padding: 9px 14px;
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--line);
   font-family: var(--mono);
   font-size: 12.5px;
@@ -434,17 +450,18 @@ body {
 .results-table-header {
   display: grid;
   grid-template-columns: 42px 1fr 90px 160px;
-  column-gap: 12px;
-  padding: 8px 14px;
+  column-gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
   font-family: var(--mono);
   font-size: 10.5px;
+  letter-spacing: 0.03em;
   color: var(--slate);
   background: var(--paper);
   border-bottom: 1px solid var(--line-strong);
 }
 
 .reveal-sensitive-row {
-  padding: 14px;
+  padding: var(--space-4);
   text-align: center;
   background: var(--paper);
 }
@@ -484,14 +501,14 @@ body {
 
 .toast {
   position: fixed;
-  bottom: 24px;
+  bottom: var(--space-6);
   left: 50%;
-  transform: translateX(-50%) translateY(12px);
+  transform: translateX(-50%) translateY(var(--space-3));
   background: var(--ink);
   color: var(--paper);
   font-family: var(--sans);
   font-size: 13px;
-  padding: 10px 18px;
+  padding: var(--space-3) var(--space-4);
   border-radius: 4px;
   box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   opacity: 0;
@@ -509,13 +526,13 @@ body {
 
 /* ---------- History ---------- */
 
-.history-list { display: flex; flex-direction: column; gap: 8px; }
+.history-list { display: flex; flex-direction: column; gap: var(--space-2); }
 
 .history-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   background: var(--paper-raised);
   border: 1px solid var(--line);
   border-radius: 3px;
@@ -540,7 +557,7 @@ body {
 .modal {
   background: var(--paper-raised);
   border-radius: 4px;
-  padding: 28px 30px;
+  padding: var(--space-6);
   width: 440px;
   max-width: 90vw;
   max-height: 80vh;
@@ -552,28 +569,29 @@ body {
 
 .modal h3 {
   font-family: var(--slab);
-  margin: 0 0 16px 0;
+  line-height: 1.2;
+  margin: 0 0 var(--space-4) 0;
   font-size: 20px;
 }
 
 .modal-hint {
   font-size: 12.5px;
   color: var(--slate);
-  margin: -8px 0 16px 0;
+  margin: calc(var(--space-2) * -1) 0 var(--space-4) 0;
 }
 
 .modal label {
   display: block;
   font-size: 12.5px;
   color: var(--ink-soft);
-  margin-bottom: 14px;
+  margin-bottom: var(--space-4);
 }
 
 .modal input[type="text"] {
   display: block;
   width: 100%;
-  margin-top: 5px;
-  padding: 9px 10px;
+  margin-top: var(--space-1);
+  padding: var(--space-3) var(--space-2);
   font-family: var(--mono);
   font-size: 13px;
   border: 1px solid var(--line-strong);
@@ -584,9 +602,9 @@ body {
 
 .input-with-button {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: stretch;
-  margin-top: 5px;
+  margin-top: var(--space-1);
 }
 .input-with-button input[type="text"] {
   flex: 1;
@@ -595,7 +613,7 @@ body {
 }
 .btn-browse {
   flex-shrink: 0;
-  padding: 9px 14px;
+  padding: var(--space-3) var(--space-4);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -603,19 +621,19 @@ body {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 .modal-error {
   color: var(--stamp-red);
   font-size: 12.5px;
-  margin-top: -4px;
+  margin-top: calc(var(--space-1) * -1);
 }
 
 .rules-columns {
   display: flex;
-  gap: 18px;
+  gap: var(--space-4);
 }
 
 .rules-col { flex: 1; }
@@ -623,8 +641,9 @@ body {
 .rules-col-title {
   font-family: var(--mono);
   font-size: 12px;
+  letter-spacing: 0.02em;
   color: var(--slate);
-  margin-bottom: 6px;
+  margin-bottom: var(--space-2);
 }
 
 .rules-textarea {
@@ -632,7 +651,7 @@ body {
   height: 220px;
   font-family: var(--mono);
   font-size: 12.5px;
-  padding: 10px;
+  padding: var(--space-2);
   border: 1px solid var(--line-strong);
   border-radius: 3px;
   background: var(--paper);
@@ -643,15 +662,16 @@ body {
 .rules-help {
   font-size: 11px;
   color: var(--slate);
-  margin-top: 6px;
+  margin-top: var(--space-2);
+  line-height: 1.5;
 }
 
 .sensitive-warning {
   background: rgba(156,59,48,0.08);
   border: 1px solid var(--stamp-red);
   border-radius: 3px;
-  padding: 12px 16px;
-  margin-bottom: 18px;
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
   font-size: 13px;
 }
 
