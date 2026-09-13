@@ -41,6 +41,8 @@ key_patterns:
   - "cert"
   - "keystore"
   - "truststore"
+  - "username"
+  - "port"
 
 # ------------------------------------------------------------------
 # 2. VALUE-PATTERN RULES (applies to config files AND source code)
@@ -96,7 +98,7 @@ code_patterns:
     - '(?i)(?:String|final\s+String)\s+\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\w*\s*=\s*"([^"]*)"'
   python:
     - "(?i)\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*\\s*=\\s*[\"']([^\"']*)[\"']"
-    - "(?i)(?:os\\.getenv|os\\.environ\\.get)\\(\\s*[\"'][^\"']*(?:pass|secret|token|apikey|api_key|key|credential|auth)[^\"']*[\"']\\s*,\\s*[\"']([^\"']*)[\"']\\s*\\)"
+    - "(?i)(?:os\\.getenv|os\\.environ\\.get)\\(\\s*[\"'][^\"']*(?:password|secret|token|apikey|api_key|key|credential|auth)[^\"']*[\"']\\s*,\\s*[\"']([^\"']*)[\"']\\s*\\)"
   javascript:
     # Optional (?:\s*:\s*[^=;\n]+?)? allows a TypeScript type annotation between the
     # variable name and '=' (e.g. `: string`, `: string | undefined`, `: any`) so

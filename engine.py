@@ -54,15 +54,119 @@ def classify_file(path: Path):
     return None
 
 
+# Matches the "\w*(?:kw1|kw2|...)\w*" shape used by most code_patterns to let
+# a suspicious keyword appear anywhere inside a larger variable name.
+_CODE_IDENT_WRAP_WORD = re.compile(r'\\w\*\(\?:([^)]*)\)\\w\*')
+# Matches the "[^"']*(?:kw1|kw2|...)[^"']*" shape used by the getenv-style
+# pattern to let a keyword appear anywhere inside a quoted string literal
+# (e.g. an env var name).
+_CODE_IDENT_WRAP_QUOTED = re.compile(r"\[\^\"'\]\*\(\?:([^)]*)\)\[\^\"'\]\*")
+
+
+def _bound_code_pattern(raw):
+    """Wrap the suspicious-keyword alternation (and the \\w*/[^"']* run
+    around it) in named groups 'ident'/'kw'. This doesn't change what the
+    pattern matches, but lets _passes_identifier_boundary() below check
+    afterwards that the keyword is a real segment of the identifier/env-var
+    name - the whole thing, a snake_case piece, or a camelCase piece - and
+    not just a substring of an unrelated longer word (e.g. "auth" inside
+    "author", "key" inside "monkey")."""
+    def sub(wrapper):
+        def _do(m):
+            return "(?P<ident>{0}(?P<kw>{1}){0})".format(wrapper, m.group(1))
+        return _do
+
+    new, n = _CODE_IDENT_WRAP_WORD.subn(sub(r"\w*"), raw, count=1)
+    if n:
+        return new
+    new, n = _CODE_IDENT_WRAP_QUOTED.subn(sub(r"[^\"']*"), raw, count=1)
+    return new
+
+
 def load_rules(rules_path):
     with open(rules_path, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     return {
         "key_patterns": [re.compile(p, re.IGNORECASE) for p in raw.get("key_patterns", [])],
         "value_patterns": [(vp["name"], re.compile(vp["regex"], re.IGNORECASE)) for vp in raw.get("value_patterns", [])],
-        "code_patterns": {lang: [re.compile(p) for p in pats] for lang, pats in raw.get("code_patterns", {}).items()},
+        "code_patterns": {lang: [re.compile(_bound_code_pattern(p)) for p in pats] for lang, pats in raw.get("code_patterns", {}).items()},
         "placeholder_allowlist": {s.lower() for s in raw.get("placeholder_allowlist", [])},
     }
+
+
+def _char_boundary_ok(adjacent_char, keyword_char):
+    """One side of a camelCase-aware identifier-boundary check: `adjacent_char`
+    (the char just outside the matched keyword, or None at the edge of the
+    identifier) is a valid boundary if there's no adjacent char, if it isn't a
+    letter (digit/underscore/etc. all count as separators), or if it's a
+    letter whose case differs from `keyword_char` (a camelCase transition,
+    e.g. the "i"/"K" join in "apiKey")."""
+    if adjacent_char is None:
+        return True
+    if not adjacent_char.isalpha():
+        return True
+    return adjacent_char.islower() != keyword_char.islower()
+
+
+def _strict_boundary_ok(adjacent_char):
+    """One side of a strict (config-key-style) boundary check: only a
+    non-alphanumeric char (or no char at all) counts as a separator - no
+    camelCase allowance, since config/env keys are conventionally
+    snake_case/dot/kebab-case, not camelCase (e.g. "db_port"/"db.port"
+    should match a "port" rule but "support" should not)."""
+    return adjacent_char is None or not adjacent_char.isalnum()
+
+
+def key_pattern_matches(pattern, text, camel_aware):
+    """Check whether `pattern` matches a genuine bounded segment of `text`
+    (a whole word, or one set off by underscore/dot/hyphen/digit, and -when
+    `camel_aware`- one set off by a camelCase transition) rather than merely
+    appearing as a substring of an unrelated longer word (e.g. "auth" inside
+    "author", "key" inside "monkey").
+
+    `camel_aware=False` is used for config-file keys (snake_case/dot/kebab
+    convention); `camel_aware=True` is used for source-code identifiers
+    (which are commonly camelCase, e.g. "secretKey", "dbPassword")."""
+    for m in pattern.finditer(text):
+        start, end = m.span()
+        if camel_aware:
+            prev_char = text[start - 1] if start > 0 else None
+            next_char = text[end] if end < len(text) else None
+            if _char_boundary_ok(prev_char, text[start]) and _char_boundary_ok(next_char, text[end - 1]):
+                return True
+        else:
+            prev_char = text[start - 1] if start > 0 else None
+            next_char = text[end] if end < len(text) else None
+            if _strict_boundary_ok(prev_char) and _strict_boundary_ok(next_char):
+                return True
+    return False
+
+
+def _passes_identifier_boundary(match):
+    """Reject a code_pattern match whose suspicious keyword ('kw') is merely
+    a substring of an unrelated, longer identifier/env-var name ('ident')
+    rather than a genuine whole word, snake_case segment, or camelCase
+    segment of it. Patterns without the ident/kw wrapper (e.g. a custom
+    value_pattern-only rule) are always accepted."""
+    groupindex = match.re.groupindex
+    if "ident" not in groupindex or "kw" not in groupindex:
+        return True
+    ident_start, ident_end = match.span("ident")
+    kw_start, kw_end = match.span("kw")
+    text = match.string
+    prev_char = text[kw_start - 1] if kw_start > ident_start else None
+    next_char = text[kw_end] if kw_end < ident_end else None
+    return (_char_boundary_ok(prev_char, text[kw_start])
+            and _char_boundary_ok(next_char, text[kw_end - 1]))
+
+
+def _find_valid_code_match(pattern, text):
+    """Like pattern.search(text), but skips over any match rejected by
+    _passes_identifier_boundary()."""
+    for m in pattern.finditer(text):
+        if _passes_identifier_boundary(m):
+            return m
+    return None
 
 
 def is_placeholder(value, allowlist):
@@ -152,7 +256,7 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
     if value.strip() == "":
         return line
 
-    key_matched = any(p.search(key) for p in rules["key_patterns"])
+    key_matched = any(key_pattern_matches(p, key, camel_aware=False) for p in rules["key_patterns"])
 
     # Key-name match ALWAYS redacts, placeholder allow-list does not apply here.
     if key_matched:
@@ -220,9 +324,11 @@ def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignor
     patterns = rules["code_patterns"].get(lang, [])
 
     for pattern in patterns:
-        match = pattern.search(modified)
-        if match and match.group(1):
-            literal_value = match.group(1)
+        match = _find_valid_code_match(pattern, modified)
+        # The literal string value is always the last capture group, whether
+        # or not _bound_code_pattern() prefixed it with its ident/kw groups.
+        if match and match.group(match.re.groups):
+            literal_value = match.group(match.re.groups)
             if literal_value.strip() == "":
                 continue
             suppress, changed = check_ignore(ignore_map, filename, "code_literal", "code_variable_pattern", literal_value)
@@ -230,7 +336,8 @@ def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignor
                 continue
             # variable/key name matched a suspicious pattern already (that's why this
             # code_pattern fired) -> always redact, placeholder allow-list doesn't apply
-            modified = modified[:match.start(1)] + MASK + modified[match.end(1):]
+            lit_group = match.re.groups
+            modified = modified[:match.start(lit_group)] + MASK + modified[match.end(lit_group):]
             entry = {"file": filename, "line": line_no, "key": "code_literal",
                       "rule": "code_variable_pattern", "before": literal_value, "after": MASK}
             if changed:
@@ -275,7 +382,10 @@ _PLUS_CONT_TRAILING = re.compile(r'^\s*["\']([^"\']*)["\']\s*(\+)?\s*(;)?\s*$')
 
 
 def find_key_matches(name, rules):
-    return any(p.search(name) for p in rules["key_patterns"])
+    # camel_aware=True: `name` here is a source-code variable name (used by
+    # the multiline-concatenation scanners below), which is conventionally
+    # camelCase (e.g. "secretKey", "dbPassword"), unlike config-file keys.
+    return any(key_pattern_matches(p, name, camel_aware=True) for p in rules["key_patterns"])
 
 
 def scan_multiline_python(lines, rules, report_entries, filename, ignore_map={}):
