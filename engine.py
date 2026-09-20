@@ -25,6 +25,233 @@ import yaml
 
 MASK = "***REDACTED***"
 
+# ---------------------------------------------------------------------
+# Deterministic typed placeholders (opt-in - see scan_project's
+# `placeholder_mode` parameter). Disabled by default: every existing
+# caller that doesn't pass a placeholder_registry gets exactly today's
+# bare/quoted MASK behavior, unchanged.
+# ---------------------------------------------------------------------
+
+# Small, fixed set of categories reachable by the *current* rule set only.
+# Deliberately generic - provider-specific rule names (aws_access_key_id,
+# github_token, ...) collapse into these rather than being preserved, so
+# a placeholder never discloses which specific vendor/service a secret
+# belongs to. CUSTOMER_ID is intentionally not included: no current rule
+# detects customer/user identifiers, so there is nothing that could ever
+# resolve to it - adding detection for it is separate, future work.
+PLACEHOLDER_CATEGORIES = frozenset({
+    "PASSWORD", "API_KEY", "ACCESS_TOKEN", "CONNECTION_STRING",
+    "URL", "PRIVATE_KEY", "GENERIC_SECRET",
+})
+DEFAULT_CATEGORY = "GENERIC_SECRET"
+
+# Keyed by the exact raw key_pattern string as it appears in
+# rules_default.yaml (key_patterns are compiled with no wrapping, so a
+# compiled pattern's own .pattern attribute is that exact string - see
+# category_for_key_pattern()). Any key_pattern not listed here (e.g. a
+# custom one added through the rules editor) falls back to
+# DEFAULT_CATEGORY rather than raising - this table is an aid, not a
+# schema, and never blocks detection.
+KEY_PATTERN_CATEGORY = {
+    "password": "PASSWORD",
+    "passwd": "PASSWORD",
+    "pwd": "PASSWORD",
+    "secret": "GENERIC_SECRET",
+    "token": "ACCESS_TOKEN",
+    "api[_-]?key": "API_KEY",
+    "apikey": "API_KEY",
+    "access[_-]?key": "API_KEY",
+    "private[_-]?key": "PRIVATE_KEY",
+    "client[_-]?secret": "API_KEY",
+    "auth": "ACCESS_TOKEN",
+    "credential": "GENERIC_SECRET",
+    "connection[_-]?string": "CONNECTION_STRING",
+    "conn[_-]?str": "CONNECTION_STRING",
+    "jdbc": "CONNECTION_STRING",
+    "datasource\\.url": "URL",
+    "db\\.url": "URL",
+    "db\\.host": "URL",
+    "db\\.password": "PASSWORD",
+    "db\\.username": "GENERIC_SECRET",
+    "host": "URL",
+    "hostname": "URL",
+    "ip[_-]?address": "URL",
+    "endpoint": "URL",
+    "url": "URL",
+    "uri": "URL",
+    "ssn": "GENERIC_SECRET",
+    "encryption[_-]?key": "PRIVATE_KEY",
+    "signing[_-]?key": "PRIVATE_KEY",
+    "session[_-]?key": "GENERIC_SECRET",
+    "cert": "GENERIC_SECRET",
+    "keystore": "GENERIC_SECRET",
+    "truststore": "GENERIC_SECRET",
+}
+
+# Keyed by value_pattern `name` (from rules_default.yaml) - "high_entropy"
+# is not a value_pattern but the synthetic reason string used when only
+# the entropy heuristic fired, included here for the same lookup.
+VALUE_PATTERN_CATEGORY = {
+    "ipv4_address": "URL",
+    "ipv6_address": "URL",
+    "url_with_credentials": "URL",
+    "generic_url": "URL",
+    "aws_access_key_id": "API_KEY",
+    "aws_secret_key_assignment": "API_KEY",
+    "github_token": "ACCESS_TOKEN",
+    "slack_token": "ACCESS_TOKEN",
+    "jwt_token": "ACCESS_TOKEN",
+    "bearer_token": "ACCESS_TOKEN",
+    "private_key_block": "PRIVATE_KEY",
+    "email_address": "GENERIC_SECRET",
+    "high_entropy": "GENERIC_SECRET",
+}
+
+# Keyed by the suspicious keyword text captured by a code_pattern's named
+# "kw" group (see _bound_code_pattern) - the same word list every
+# code_pattern in rules_default.yaml currently shares. Looked up
+# case-insensitively.
+CODE_KEYWORD_CATEGORY = {
+    "password": "PASSWORD",
+    "secret": "GENERIC_SECRET",
+    "token": "ACCESS_TOKEN",
+    "apikey": "API_KEY",
+    "api_key": "API_KEY",
+    "key": "GENERIC_SECRET",
+    "credential": "GENERIC_SECRET",
+    "auth": "ACCESS_TOKEN",
+}
+
+
+def category_for_key_pattern(pattern):
+    """`pattern` is a compiled key_patterns regex; its .pattern attribute
+    is the exact raw string from rules_default.yaml (key_patterns are
+    compiled with no wrapping applied)."""
+    return KEY_PATTERN_CATEGORY.get(pattern.pattern, DEFAULT_CATEGORY)
+
+
+def category_for_value_pattern(name):
+    return VALUE_PATTERN_CATEGORY.get(name, DEFAULT_CATEGORY)
+
+
+def category_for_code_keyword(keyword):
+    if not keyword:
+        return DEFAULT_CATEGORY
+    return CODE_KEYWORD_CATEGORY.get(keyword.lower(), DEFAULT_CATEGORY)
+
+
+def _most_specific_category(categories):
+    """Some keys match more than one key_pattern (e.g. "client_secret"
+    matches both the bare "secret" pattern and the more specific
+    "client[_-]?secret" one) - prefer whichever matched pattern maps to a
+    named category over one that only falls back to DEFAULT_CATEGORY, so
+    a generic pattern appearing earlier in rules_default.yaml doesn't
+    shadow a more specific one appearing later. Never changes *whether*
+    something is detected - only which category label a placeholder uses."""
+    fallback = DEFAULT_CATEGORY
+    for c in categories:
+        if c != DEFAULT_CATEGORY:
+            return c
+        fallback = c
+    return fallback
+
+
+class PlaceholderRegistry:
+    """Deterministic, typed placeholder assignment for exactly one
+    scan_project() call.
+
+    Maps (category, exact_value) -> a stable "<CATEGORY_N>" token, with a
+    separate ordinal counter per category. Two different real values in
+    the same category never collide on one placeholder; the same real
+    value under a different key/variable name (or in a different file
+    within the same scan) always gets the same one - see
+    category_for_key_pattern() and friends for how "category" is decided,
+    and scan_project()'s sorted os.walk traversal for why numbering is
+    reproducible across repeated scans of unchanged input.
+
+    Security: this map is exactly as sensitive as the secrets it indexes.
+    It is never persisted to disk or a database, never logged, and never
+    included in any report entry or sensitive-value storage - it exists
+    only in memory for the lifetime of the scan_project() call that
+    created it, then is discarded with it. The placeholder text itself is
+    built only from a fixed category name and an integer - never from any
+    character of the original value - so it cannot leak the secret's
+    content, length, prefix, suffix, or provider even if the placeholder
+    text itself were ever exposed.
+    """
+
+    def __init__(self):
+        self._map = {}
+        self._counters = {}
+
+    def get_or_create(self, category, value):
+        key = (category, value)
+        placeholder = self._map.get(key)
+        if placeholder is None:
+            n = self._counters.get(category, 0) + 1
+            self._counters[category] = n
+            placeholder = f"<{category}_{n}>"
+            self._map[key] = placeholder
+        return placeholder
+
+
+def _normalize_value_for_identity(value):
+    """Strip one matching pair of surrounding quote characters, if any, so
+    the same underlying value is recognized as identical for placeholder
+    correlation regardless of which quote style (or none) it happens to
+    be written with (e.g. "PF001" and 'PF001' must correlate)."""
+    v = value.rstrip()
+    if len(v) >= 2 and v[0] in ('"', "'") and v[-1] == v[0]:
+        return v[1:-1]
+    return v
+
+
+def _quote_wrap(value, replacement_text, force_quote=False):
+    """Wrap `replacement_text` (MASK or a typed placeholder) to match
+    `value`'s original quoting style. Shared by quoted_mask() (MASK) and
+    the placeholder-mode path, so both stay byte-for-byte consistent
+    about quoting - see quoted_mask()'s docstring for `force_quote`."""
+    v = value.rstrip()
+    if len(v) >= 2 and v[0] in ('"', "'") and v[-1] == v[0]:
+        return v[0] + replacement_text + v[0]
+    if force_quote:
+        return '"' + replacement_text + '"'
+    return replacement_text
+
+
+def _xml_escape_placeholder(token):
+    """Escape the two characters ('<', '>') that make a typed placeholder
+    token (e.g. "<PASSWORD_1>") invalid when written into XML element text
+    or an XML attribute value, where they're reserved metacharacters -
+    MASK ("***REDACTED***") contains neither, so MASK-mode output has
+    never needed this. Only ever applied to a token this module itself
+    just generated (never to `value` or the rest of the line), so there is
+    no existing XML content here to double-escape. The registry's own
+    stored token, and every non-XML caller, stay exactly "<CATEGORY_N>" -
+    this is a display-only transform at the same layer as _quote_wrap's
+    quoting, not a change to placeholder identity."""
+    return token.replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _placeholder_or_mask(value, category, placeholder_registry, force_quote=False, xml_escape=False):
+    """The text to substitute for a detected *config-line* value (one
+    whose captured span may include surrounding quotes), at its original
+    quoting style: the shared MASK when `placeholder_registry` is None
+    (placeholder_mode off - today's exact, unchanged default), or a
+    deterministic typed placeholder token when one is supplied.
+
+    `xml_escape`: True when this value's line was recognized as an XML
+    element-text or XML-attribute-value shape (see redact_config_line) -
+    escapes the placeholder token's '<'/'>' before it's written into that
+    XML context. Never applied to MASK (which contains neither character
+    and whose behavior must stay unchanged)."""
+    if placeholder_registry is None:
+        return _quote_wrap(value, MASK, force_quote=force_quote)
+    identity_value = _normalize_value_for_identity(value)
+    token = placeholder_registry.get_or_create(category, identity_value)
+    replacement_text = _xml_escape_placeholder(token) if xml_escape else token
+    return _quote_wrap(value, replacement_text, force_quote=force_quote)
+
 
 class NotAGitRepoError(Exception):
     """Raised when changed_files_only scanning is requested but input_dir
@@ -293,6 +520,13 @@ def find_key_value(line):
 
 YAML_EXTENSIONS = {".yaml", ".yml"}
 
+# Files where a value can sit inside XML element text or an XML attribute
+# value - see _xml_escape_placeholder(). Only used to decide whether the
+# redact_value_patterns_only() fallback path (which has no structural shape
+# to test, unlike redact_config_line's _KV_XML_* patterns) should XML-escape
+# a placeholder token; not used to change detection or MASK-mode behavior.
+XML_EXTENSIONS = {".xml", ".config"}
+
 
 def quoted_mask(value, force_quote=False):
     """Mask a config value, preserving its surrounding quote character (if any).
@@ -311,18 +545,13 @@ def quoted_mask(value, force_quote=False):
     double-quoted instead of left bare - always safe, since MASK contains
     no characters that need escaping inside a double-quoted YAML scalar.
     """
-    v = value.rstrip()
-    if len(v) >= 2 and v[0] in ('"', "'") and v[-1] == v[0]:
-        return v[0] + MASK + v[0]
-    if force_quote:
-        return '"' + MASK + '"'
-    return MASK
+    return _quote_wrap(value, MASK, force_quote=force_quote)
 
 
-def redact_config_line(line, rules, report_entries, filename, line_no, ignore_map={}):
+def redact_config_line(line, rules, report_entries, filename, line_no, ignore_map={}, placeholder_registry=None):
     key, value, value_start, value_end = find_key_value(line)
     if key is None:
-        return redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map)
+        return redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map, placeholder_registry)
 
     if value.strip() == "":
         return line
@@ -331,16 +560,27 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
     # meaningful (an alias reference) - see quoted_mask()'s docstring. Every
     # other format handled here (.properties/.env/JSON/XML/.config/etc.)
     # is unaffected either way, so this is gated strictly by extension.
+    # Typed placeholders never start with '*' either way, but force_quote
+    # is applied uniformly regardless of mode for one less thing to reason
+    # about.
     is_yaml = Path(filename).suffix.lower() in YAML_EXTENSIONS
+    # True only when this line's value was captured via one of the two
+    # XML-tag-shaped patterns (element text or an attribute's value=".."),
+    # not merely because the file extension is .xml/.config - a bareword
+    # or JSON-shaped line in a .config file (e.g. INI-style) has no
+    # surrounding tag to corrupt and must not be escaped. See
+    # _xml_escape_placeholder().
+    is_xml_shape = bool(_KV_XML_ATTR_PAIR.match(line)) or bool(_KV_XML_ELEMENT.match(line))
 
-    key_matched = any(key_pattern_matches(p, key, camel_aware=False) for p in rules["key_patterns"])
+    matched_key_patterns = [p for p in rules["key_patterns"] if key_pattern_matches(p, key, camel_aware=False)]
 
     # Key-name match ALWAYS redacts, placeholder allow-list does not apply here.
-    if key_matched:
+    if matched_key_patterns:
         suppress, changed = check_ignore(ignore_map, filename, key, "key_name_match", value)
         if suppress:
             return line
-        replacement = quoted_mask(value, force_quote=is_yaml)
+        category = _most_specific_category(category_for_key_pattern(p) for p in matched_key_patterns)
+        replacement = _placeholder_or_mask(value, category, placeholder_registry, force_quote=is_yaml, xml_escape=is_xml_shape)
         entry = {"file": filename, "line": line_no, "key": key, "rule": "key_name_match",
                   "before": value, "after": replacement}
         if changed:
@@ -363,7 +603,8 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
         suppress, changed = check_ignore(ignore_map, filename, key, reason, value)
         if suppress:
             return line
-        replacement = quoted_mask(value, force_quote=is_yaml)
+        category = category_for_value_pattern(reason)
+        replacement = _placeholder_or_mask(value, category, placeholder_registry, force_quote=is_yaml, xml_escape=is_xml_shape)
         entry = {"file": filename, "line": line_no, "key": key, "rule": reason,
                   "before": value, "after": replacement}
         if changed:
@@ -374,8 +615,14 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
     return line
 
 
-def redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map={}):
+def redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map={}, placeholder_registry=None):
     modified = line
+    # No structural shape to test here (unlike redact_config_line's
+    # _KV_XML_* patterns) - a value_pattern match can land anywhere in the
+    # line, so this falls back to the file extension. Only affects
+    # placeholder-mode escaping of the substituted token; detection and
+    # MASK-mode output are unaffected either way.
+    is_xml = Path(filename).suffix.lower() in XML_EXTENSIONS
     for name, pattern in rules["value_patterns"]:
         m = pattern.search(modified)
         if m:
@@ -385,16 +632,46 @@ def redact_value_patterns_only(line, rules, report_entries, filename, line_no, i
             suppress, changed = check_ignore(ignore_map, filename, None, name, before_val)
             if suppress:
                 continue
-            modified = pattern.sub(MASK, modified)
+            if placeholder_registry is not None:
+                category = category_for_value_pattern(name)
+                token = placeholder_registry.get_or_create(category, before_val)
+                after_val = _xml_escape_placeholder(token) if is_xml else token
+                # A function (not a fixed string) so every distinct match on
+                # this line - if the pattern matches more than once -
+                # resolves its own identity, same as pattern.sub(MASK, ...)
+                # already replaced every match with a fixed string before.
+                def _repl(mm, _category=category):
+                    tok = placeholder_registry.get_or_create(_category, mm.group(0))
+                    return _xml_escape_placeholder(tok) if is_xml else tok
+                modified = pattern.sub(_repl, modified)
+            else:
+                after_val = MASK
+                modified = pattern.sub(MASK, modified)
             entry = {"file": filename, "line": line_no, "key": None, "rule": name,
-                      "before": before_val, "after": MASK}
+                      "before": before_val, "after": after_val}
             if changed:
                 entry["previously_ignored_value_changed"] = True
             report_entries.append(entry)
     return modified
 
 
-def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignore_map={}):
+_PLACEHOLDER_SHAPE = re.compile(r"<[A-Z_]+_\d+>")
+
+
+def _already_redacted(text, placeholder_registry):
+    """True if `text` contains a marker a previous pass in this same line
+    already inserted - MASK always, plus (only when placeholder mode is
+    active) anything shaped like a typed placeholder token - so the
+    second (value_patterns) pass below doesn't try to re-redact text the
+    first (code_patterns) pass already replaced."""
+    if MASK in text:
+        return True
+    if placeholder_registry is not None and _PLACEHOLDER_SHAPE.search(text):
+        return True
+    return False
+
+
+def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignore_map={}, placeholder_registry=None):
     modified = line
     patterns = rules["code_patterns"].get(lang, [])
 
@@ -412,25 +689,37 @@ def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignor
             # variable/key name matched a suspicious pattern already (that's why this
             # code_pattern fired) -> always redact, placeholder allow-list doesn't apply
             lit_group = match.re.groups
-            modified = modified[:match.start(lit_group)] + MASK + modified[match.end(lit_group):]
+            if placeholder_registry is not None:
+                kw_text = match.group("kw") if "kw" in match.re.groupindex else None
+                category = category_for_code_keyword(kw_text)
+                replacement = placeholder_registry.get_or_create(category, literal_value)
+            else:
+                replacement = MASK
+            modified = modified[:match.start(lit_group)] + replacement + modified[match.end(lit_group):]
             entry = {"file": filename, "line": line_no, "key": "code_literal",
-                      "rule": "code_variable_pattern", "before": literal_value, "after": MASK}
+                      "rule": "code_variable_pattern", "before": literal_value, "after": replacement}
             if changed:
                 entry["previously_ignored_value_changed"] = True
             report_entries.append(entry)
 
     for name, pattern in rules["value_patterns"]:
         m = pattern.search(modified)
-        if m and MASK not in m.group(0):
+        if m and not _already_redacted(m.group(0), placeholder_registry):
             if is_placeholder(m.group(0), rules["placeholder_allowlist"]):
                 continue
             before_val = m.group(0)
             suppress, changed = check_ignore(ignore_map, filename, None, name, before_val)
             if suppress:
                 continue
-            modified = pattern.sub(MASK, modified)
+            if placeholder_registry is not None:
+                category = category_for_value_pattern(name)
+                after_val = placeholder_registry.get_or_create(category, before_val)
+                modified = pattern.sub(lambda mm: placeholder_registry.get_or_create(category, mm.group(0)), modified)
+            else:
+                after_val = MASK
+                modified = pattern.sub(MASK, modified)
             entry = {"file": filename, "line": line_no, "key": None, "rule": name,
-                      "before": before_val, "after": MASK}
+                      "before": before_val, "after": after_val}
             if changed:
                 entry["previously_ignored_value_changed"] = True
             report_entries.append(entry)
@@ -460,10 +749,57 @@ def find_key_matches(name, rules):
     # camel_aware=True: `name` here is a source-code variable name (used by
     # the multiline-concatenation scanners below), which is conventionally
     # camelCase (e.g. "secretKey", "dbPassword"), unlike config-file keys.
-    return any(key_pattern_matches(p, name, camel_aware=True) for p in rules["key_patterns"])
+    #
+    # Returns the list of every matching pattern (possibly empty), not
+    # just a bool - every existing caller only ever used this in a boolean
+    # context (an empty list is falsy, same as the old False), so this is
+    # backward-compatible; the patterns are what let callers resolve a
+    # placeholder category via category_for_key_pattern(), preferring the
+    # most specific match when more than one pattern matches (see
+    # _most_specific_category()).
+    return [p for p in rules["key_patterns"] if key_pattern_matches(p, name, camel_aware=True)]
 
 
-def scan_multiline_python(lines, rules, report_entries, filename, ignore_map={}):
+def _multiline_category(key_hit, value_hit):
+    if key_hit:
+        return _most_specific_category(category_for_key_pattern(p) for p in key_hit)
+    return category_for_value_pattern(value_hit or "high_entropy")
+
+
+def _multiline_replacements(placeholder_registry, category, joined, fragment_count):
+    """One replacement string per fragment, in order.
+
+    MASK mode (placeholder_registry is None - today's exact, unchanged
+    default): every fragment individually gets MASK, exactly as before
+    this feature existed.
+
+    Placeholder mode: the whole reconstructed value is one entity, so it
+    gets exactly one placeholder - assigned to the FIRST fragment's quoted
+    span - with every later fragment's span emptied, rather than each
+    fragment getting its own (misleadingly implying separate secrets).
+    """
+    if placeholder_registry is not None:
+        full_placeholder = placeholder_registry.get_or_create(category, joined)
+        return [full_placeholder] + [""] * (fragment_count - 1)
+    return [MASK] * fragment_count
+
+
+def _redact_multiline_fragments(lines, frag_indices, fragments, replacements):
+    """Rewrite each physical fragment line in place using `replacements`
+    (one entry per fragment, from _multiline_replacements()). Line count
+    and structure are unchanged - only the quoted content on each line
+    changes - so the file's shape stays exactly as it was, and the
+    original secret survives nowhere in the multi-line result.
+
+    Yields (line_index, fragment_text, replacement_text) per fragment, for
+    the caller to build report entries from.
+    """
+    for idx, frag, replacement in zip(frag_indices, fragments, replacements):
+        lines[idx] = re.sub(r'(["\'])[^"\']*\1', lambda mm, r=replacement: mm.group(1) + r + mm.group(1), lines[idx], count=1)
+        yield idx, frag, replacement
+
+
+def scan_multiline_python(lines, rules, report_entries, filename, ignore_map={}, placeholder_registry=None):
     """Detect and redact `var = (\n "frag" \n "frag" \n)` across physical lines."""
     i = 0
     n = len(lines)
@@ -493,10 +829,11 @@ def scan_multiline_python(lines, rules, report_entries, filename, ignore_map={})
                         rule = f"multiline_concat_{reason}"
                         suppress, changed = check_ignore(ignore_map, filename, var_name, rule, joined)
                         if not suppress:
-                            for idx, frag in zip(frag_indices, fragments):
-                                lines[idx] = re.sub(r'(["\'])[^"\']*\1', lambda mm: mm.group(1) + MASK + mm.group(1), lines[idx], count=1)
+                            category = _multiline_category(key_hit, value_hit) if placeholder_registry is not None else None
+                            replacements = _multiline_replacements(placeholder_registry, category, joined, len(fragments))
+                            for idx, frag, frag_replacement in _redact_multiline_fragments(lines, frag_indices, fragments, replacements):
                                 entry = {"file": filename, "line": idx + 1, "key": var_name,
-                                          "rule": rule, "before": frag, "after": MASK}
+                                          "rule": rule, "before": frag, "after": frag_replacement}
                                 if changed:
                                     entry["previously_ignored_value_changed"] = True
                                 report_entries.append(entry)
@@ -504,7 +841,7 @@ def scan_multiline_python(lines, rules, report_entries, filename, ignore_map={})
     return lines
 
 
-def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}):
+def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}, placeholder_registry=None):
     """
     Detect and redact string concatenation spanning multiple physical lines,
     in either style:
@@ -570,10 +907,11 @@ def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}):
                         rule = f"multiline_concat_{reason}"
                         suppress, changed = check_ignore(ignore_map, filename, var_name, rule, joined)
                         if not suppress:
-                            for idx, frag in zip(frag_indices, fragments):
-                                lines[idx] = re.sub(r'(["\'])[^"\']*\1', lambda mm: mm.group(1) + MASK + mm.group(1), lines[idx], count=1)
+                            category = _multiline_category(key_hit, value_hit) if placeholder_registry is not None else None
+                            replacements = _multiline_replacements(placeholder_registry, category, joined, len(fragments))
+                            for idx, frag, frag_replacement in _redact_multiline_fragments(lines, frag_indices, fragments, replacements):
                                 entry = {"file": filename, "line": idx + 1, "key": var_name,
-                                          "rule": rule, "before": frag, "after": MASK}
+                                          "rule": rule, "before": frag, "after": frag_replacement}
                                 if changed:
                                     entry["previously_ignored_value_changed"] = True
                                 report_entries.append(entry)
@@ -581,7 +919,7 @@ def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}):
     return lines
 
 
-def process_file(src_path, rel_path, rules, report_entries, classification, ignore_map={}):
+def process_file(src_path, rel_path, rules, report_entries, classification, ignore_map={}, placeholder_registry=None):
     try:
         with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
             lines = f.readlines()
@@ -591,26 +929,32 @@ def process_file(src_path, rel_path, rules, report_entries, classification, igno
     ext = src_path.suffix.lower()
 
     if classification == "config":
-        output_lines = [redact_config_line(l, rules, report_entries, str(rel_path), i + 1, ignore_map) for i, l in enumerate(lines)]
+        output_lines = [
+            redact_config_line(l, rules, report_entries, str(rel_path), i + 1, ignore_map, placeholder_registry)
+            for i, l in enumerate(lines)
+        ]
         return "".join(output_lines), None
 
     if classification.startswith("code:"):
         lang = classification.split(":", 1)[1]
 
         if ext == ".py":
-            lines = scan_multiline_python(lines, rules, report_entries, str(rel_path), ignore_map)
+            lines = scan_multiline_python(lines, rules, report_entries, str(rel_path), ignore_map, placeholder_registry)
         if lang in PLUS_CONCAT_LANGS:
-            lines = scan_multiline_plus(lines, rules, report_entries, str(rel_path), ignore_map)
+            lines = scan_multiline_plus(lines, rules, report_entries, str(rel_path), ignore_map, placeholder_registry)
 
         output_lines = []
         for i, l in enumerate(lines):
-            if MASK in l:
+            if _already_redacted(l, placeholder_registry):
                 output_lines.append(l)  # already redacted by multiline handler, don't double-process
             else:
-                output_lines.append(redact_code_line(l, lang, rules, report_entries, str(rel_path), i + 1, ignore_map))
+                output_lines.append(redact_code_line(l, lang, rules, report_entries, str(rel_path), i + 1, ignore_map, placeholder_registry))
         return "".join(output_lines), None
 
-    output_lines = [redact_value_patterns_only(l, rules, report_entries, str(rel_path), i + 1, ignore_map) for i, l in enumerate(lines)]
+    output_lines = [
+        redact_value_patterns_only(l, rules, report_entries, str(rel_path), i + 1, ignore_map, placeholder_registry)
+        for i, l in enumerate(lines)
+    ]
     return "".join(output_lines), None
 
 
@@ -646,7 +990,17 @@ def get_git_changed_files(input_dir):
     return changed
 
 
-def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False):
+def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False, placeholder_mode=False):
+    """
+    `placeholder_mode`: opt-in, defaults to False. False (the default)
+    preserves today's behavior exactly - every finding is masked with the
+    single shared MASK constant, byte-for-byte identical to before this
+    parameter existed. True redacts with deterministic, typed
+    placeholders instead (see PlaceholderRegistry) - the same real value,
+    detected as the same category, always gets the same "<CATEGORY_N>"
+    token anywhere in this one scan; different values never collide on
+    one token.
+    """
     input_dir = Path(input_dir).resolve()
     output_dir = Path(output_dir).resolve()
 
@@ -667,9 +1021,18 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
     files_scanned = 0
     files_skipped = []
 
+    # One registry for this whole call, never returned or persisted - see
+    # PlaceholderRegistry's docstring. None when placeholder_mode is off,
+    # so every function this is threaded into falls back to its existing
+    # MASK-based behavior with no other code path change.
+    placeholder_registry = PlaceholderRegistry() if placeholder_mode else None
+
     for root, dirs, files in os.walk(input_dir):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        for fname in files:
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        # Sorted so file/placeholder-numbering order is reproducible
+        # across repeated scans of unchanged input - os.walk's own
+        # per-directory order is not a documented guarantee.
+        for fname in sorted(files):
             src_path = Path(root) / fname
             rel_path = src_path.relative_to(input_dir)
 
@@ -698,7 +1061,7 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
 
             classification = classify_file(src_path)
             if classification is not None:
-                content, error = process_file(src_path, rel_path, rules, report_entries, classification, ignore_map)
+                content, error = process_file(src_path, rel_path, rules, report_entries, classification, ignore_map, placeholder_registry)
                 if error:
                     files_skipped.append(str(rel_path))
                     shutil.copy2(src_path, dest_path)

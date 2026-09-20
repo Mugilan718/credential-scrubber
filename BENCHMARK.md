@@ -43,7 +43,13 @@ Useful flags:
 python run_benchmark.py --json-out results.json   # full machine-readable results
 python run_benchmark.py --output-dir out/          # keep the sanitized copy instead of a temp dir
 python run_benchmark.py --quiet                    # suppress the text report (e.g. with --json-out)
+python run_benchmark.py --placeholder-mode         # also run the placeholder-mode benchmark (see below)
 ```
+
+`--placeholder-mode` runs an **additional, separate** report after the
+normal one - it does not change the normal benchmark's own behavior or
+output in any way. See [Placeholder-mode benchmark](#placeholder-mode-benchmark)
+below.
 
 No GUI dependency - it imports `engine.py` directly and calls
 `engine.scan_project()`, the same function the desktop app's Flask API
@@ -92,7 +98,7 @@ Optional fields:
 | `original_value` | The exact fake secret text - used for the leak check |
 | `expected_output_line` | Exact expected sanitized line, when a substring check would be ambiguous (see below) |
 | `value_group` | Links cases that share the same original value, for the placeholder-consistency check |
-| `expected_placeholder_category` | A forward-looking label (`DB_PASSWORD`, `API_KEY`, ...) for a **future** typed-placeholder engine - not enforced by today's engine, which uses one shared mask for everything. Recorded now so it doesn't need to be re-derived later. |
+| `expected_placeholder_category` | The category (`PASSWORD`, `API_KEY`, `ACCESS_TOKEN`, `CONNECTION_STRING`, `URL`, `PRIVATE_KEY`, `GENERIC_SECRET`) checked by the placeholder-mode benchmark's distinctness metric (see below). Not used by the default (MASK-mode) benchmark. Some values predate placeholder mode's implementation and use a more specific label (e.g. `DB_PASSWORD`) than the 7 the engine actually resolves to - these are informational only and not checked for an exact match, only used to group values for the distinctness check. |
 | `notes` | Free text - why this case exists, what regression it pins |
 
 Ground truth is data, never code the engine can see - `run_benchmark.py`
@@ -149,12 +155,14 @@ correctly detected (a TP), checked in this order of severity:
    happened; today's engine uses one shared mask for every finding, so
    this should always read zero.
 
-**Placeholder distinctness** is reported as an **informational** note,
-not a failure: today's engine cannot give two *different* secrets two
-*different* placeholders (`<CUSTOMER_ID_1>` vs `<CUSTOMER_ID_2>`) - that's
-explicitly future work (see the audit's AI-agent-security phase), not a
-regression. `expected_placeholder_category` in the ground truth exists so
-that future work has labels ready to check against.
+**Placeholder distinctness**: in the *default* benchmark above (MASK
+mode), this is reported as an **informational** note, not a failure -
+`engine.scan_project()`'s default behavior still masks every finding with
+the one shared `***REDACTED***` token, so two different secrets can never
+get distinct placeholders in that mode, and that's expected, not a
+regression. Typed, distinct placeholders exist as an **opt-in** mode
+(`placeholder_mode=True`) with its own dedicated benchmark run - see the
+next section - where distinctness is a real, checked property.
 
 **Syntax preservation** - after sanitization, is the file still valid in
 its own format? Python, JSON, XML/.config, and YAML get parsed for real
@@ -189,6 +197,96 @@ A tool can have perfect detection and still leak secrets through bad
 sanitization (this is exactly what the audit's F2 finding was), or vice
 versa - detect too little but sanitize whatever it does find flawlessly.
 Collapsing these into one score would hide that distinction.
+
+## Placeholder-mode benchmark
+
+`engine.scan_project(..., placeholder_mode=True)` is an **opt-in**
+alternative to the default MASK behavior: instead of replacing every
+finding with the single shared `***REDACTED***` token, it assigns each
+finding a deterministic, typed placeholder like `<API_KEY_1>` - the same
+real value, detected under the same category, always gets the same
+token anywhere in one scan; different values never collide on one token.
+See `PlaceholderRegistry` in `engine.py` for the full design.
+
+Run it with `python run_benchmark.py --placeholder-mode` (alongside the
+normal benchmark, never instead of it) or standalone via
+`run_benchmark.run_placeholder_benchmark()`.
+
+**What it measures**, all computed from an actual run:
+
+- **Detection** - reused directly from the same confusion-matrix logic as
+  the default benchmark, as a cross-check: placeholder mode changes only
+  the *replacement text*, never *whether* something is detected, so this
+  is expected to read identically to the default benchmark's numbers
+  every time. A divergence here would mean the two modes' detection paths
+  have drifted apart, which shouldn't be possible given how the feature
+  is wired (one `placeholder_registry` parameter threaded through the
+  same detection code, not a separate implementation).
+- **Original secret leakage (critical)** - same principle as the default
+  benchmark's leak check, but implemented differently: since there's no
+  hand-authored `expected_output_line` for a placeholder's exact,
+  runtime-assigned text, this compares *occurrence counts* of each
+  finding's raw value between the original source and the sanitized
+  output. The count must drop by at least one - it's fine (not a leak)
+  for the value's text to still appear the *same* number of times it did
+  in the original for reasons unrelated to this finding (e.g. as a
+  substring of its own key name, like `secret_key`), but it must never
+  appear the *same or more* times when it was supposed to have one
+  occurrence removed.
+- **Placeholder consistency** - cases sharing a `value_group` must get the
+  same token. Multiline-secret groups are checked separately (with a
+  shape-appropriate rule - exactly one non-empty, shared token across the
+  fragments, not "all identical," since the design deliberately puts the
+  placeholder on the first fragment and empties the rest - see the next
+  section) rather than folded into the general check, which would
+  otherwise mis-flag them.
+- **Placeholder distinctness** - the property that's only a real,
+  checkable thing in this mode: no two different real values (within the
+  same `expected_placeholder_category`) ever end up sharing one token.
+  The intentional empty-string "fragment emptied" marker (see below) is
+  explicitly excluded from this check - two different fragments both
+  legitimately emptying to `""` is not a collision.
+- **Deterministic output** - the whole scan is run a second time in the
+  same benchmark invocation, and both the report entries and every
+  sanitized output file are compared byte-for-byte against the first run.
+- **Syntax preservation** - reuses the same real-parser-where-possible /
+  heuristic-elsewhere checker as the default benchmark
+  (`benchmark/syntax_check.py`), reported as its own separate section.
+  This was added specifically because typed placeholders can contain
+  characters MASK never did - `<API_KEY_1>` contains `<`/`>`, which are
+  reserved in XML - and the placeholder benchmark did not check syntax at
+  all before this, so an XML/.config regression could pass with "0
+  failures" while silently producing invalid XML. See "XML/.config
+  placeholder escaping" below for the fix this check now guards.
+
+### XML/.config placeholder escaping
+
+Unlike `***REDACTED***`, a typed placeholder's `<`/`>` characters are
+reserved metacharacters in XML. Written unescaped into XML element text
+(`<password><PASSWORD_1></password>`) or an XML attribute value
+(`value="<API_KEY_1>"`), they produce invalid XML - the first because
+`<PASSWORD_1>` parses as a nested element, not text; the second because a
+raw `<` inside an attribute value is illegal. `.xml` and `.config` files
+now get the placeholder token XML-escaped (`<` -> `&lt;`, `>` -> `&gt;`)
+before it's written into the line - `PlaceholderRegistry`'s own stored
+token, and every non-XML caller, are unaffected and still exactly
+`<CATEGORY_N>`; only the text substituted into an XML/.config line is
+escaped, and only in placeholder mode (MASK contains neither character, so
+MASK-mode output is unaffected either way). See
+`engine._xml_escape_placeholder()` and
+`tests/test_placeholders.py`'s XML/.config well-formedness tests.
+
+### Multiline placeholders
+
+A multiline concatenated secret (Python's parenthesized style, Java/JS/C#'s
+`+`-operator style) is one logical value split across several physical
+lines. In placeholder mode, the **first** fragment's quoted span gets the
+one placeholder standing in for the whole reconstructed value; every
+**later** fragment's quoted span is emptied (`""`) rather than also
+getting its own (misleadingly implying several separate secrets). Line
+count and structure are unchanged either way. MASK mode is unaffected by
+this - every fragment still gets its own `***REDACTED***`, exactly as
+before this feature existed.
 
 ## Limitations
 
@@ -229,7 +327,39 @@ Be honest about what this benchmark does **not** test:
   today** (`category: "customer_id"` cases are intentionally marked
   `expected_detection: false` - see `benchmark/dataset/cases.jsonl`).
   This is a real, current gap, recorded honestly rather than worked
-  around.
+  around. This also means `CUSTOMER_ID` is not a category placeholder
+  mode can ever actually assign yet - it's reachable by the same
+  mechanism as the other 7 categories the moment detection for it exists,
+  but nothing currently triggers it.
+- **The placeholder category mapping is a small, best-effort table**
+  (`KEY_PATTERN_CATEGORY`/`VALUE_PATTERN_CATEGORY`/`CODE_KEYWORD_CATEGORY`
+  in `engine.py`), not exhaustive of every nuance a key name could imply -
+  a rule not explicitly mapped falls back to `GENERIC_SECRET` rather than
+  raising, so a custom rule added through the rules editor still works,
+  just without a more specific label.
+- **The same real value can resolve to a different category - and
+  therefore a different placeholder token - depending on which detection
+  path caught it (known limitation, not fixed).** A connection-string-shaped
+  value gets `CONNECTION_STRING` when caught via a key like `jdbc`, but
+  `URL` when the identical value is caught elsewhere via the `generic_url`
+  value-pattern (whose regex also matches `jdbc:`/`mongodb`/`redis`/`amqp`
+  schemes, without resolving to the more specific category). Unlike the
+  config-key path (`_most_specific_category`, which already reconciles
+  multiple matching `key_patterns` for the same key), neither the
+  value-pattern path nor the source-code-identifier path currently
+  reconciles against more than one signal, so there's no analogous
+  "most specific" fallback available for them. A real fix would need
+  `category_for_value_pattern`'s `generic_url` case to inspect the matched
+  scheme rather than only the pattern name, touching every call site that
+  resolves a value-pattern category (`redact_config_line`,
+  `redact_value_patterns_only`, `redact_code_line`, `_multiline_category`)
+  - judged too broad a change to make confidently as a "smallest safe fix"
+  without separately verifying it doesn't shift any of the benchmark's
+  existing per-category numbers. Pinned by
+  `tests/test_placeholders.py::test_known_limitation_connection_string_value_diverges_by_detection_path`
+  so a future fix is a deliberate, reviewed change rather than silent
+  drift. This does not affect detection, leakage, or syntax correctness -
+  only which of two valid category labels a correlated value receives.
 - **113 cases is not exhaustive.** It's enough to pin every regression
   found during the security audit and give real per-language/per-format
   numbers, not enough to claim comprehensive coverage of every secret

@@ -93,3 +93,49 @@ def render_text_report(results):
         lines.append(f"  Peak RSS: {perf['peak_rss_mb']:.1f} MB")
     lines.append("")
     return "\n".join(lines)
+
+
+def render_placeholder_report(results):
+    """Renders run_placeholder_benchmark()'s results - additive, separate
+    from render_text_report() above; the normal benchmark's report format
+    is unchanged by this function's existence."""
+    det = results["detection_overall"]
+    lines = []
+    lines.append("")
+    lines.append("Credential Scrubber Benchmark - Placeholder Mode")
+    lines.append("=" * 49)
+    lines.append("")
+    lines.append("Detection (cross-check - expected identical to the normal benchmark,")
+    lines.append("since placeholder_mode only changes replacement text, not detection):")
+    lines.append(_fmt_metrics_block(det))
+    lines.append("")
+    lines.append(f"Findings checked: {results['findings_checked']}")
+    lines.append("")
+    lines.append("Original secret leakage (CRITICAL): " + str(results["leakage_failures"]))
+    if results["leakage_details"]:
+        for ld in results["leakage_details"]:
+            lines.append(f"  - {ld['file']}:{ld['line']} rule={ld['rule']}")
+    lines.append("")
+    lines.append(f"Placeholder consistency failures (same value_group, different tokens): {results['placeholder_consistency_failures']}")
+    for cd in results["placeholder_consistency_details"]:
+        lines.append(f"  - value_group={cd['value_group']} tokens={cd['distinct_tokens']}")
+    lines.append("")
+    lines.append(f"Placeholder distinctness failures (different values sharing one token): {results['placeholder_distinctness_failures']}")
+    for dd in results["placeholder_distinctness_details"]:
+        lines.append(f"  - category={dd['category']} token={dd['token']} colliding_values={dd['colliding_values']}")
+    lines.append("")
+    lines.append(f"Syntax failures (placeholder token broke the file's own format): {results['syntax_failures']}")
+    lines.append(f"  Real-parser valid: {results['syntax_valid']}  invalid: {results['syntax_invalid']}")
+    lines.append(f"  Heuristic valid: {results['syntax_heuristic_valid']}  invalid: {results['syntax_heuristic_invalid']}")
+    lines.append(f"  Not applicable: {results['syntax_not_applicable']}")
+    for sd in results["syntax_invalid_details"]:
+        lines.append(f"  - {sd['file']}: {sd['detail']}")
+    lines.append("")
+    lines.append(f"Deterministic report entries across repeated scans: {results['deterministic_entries']}")
+    lines.append(f"Deterministic output files across repeated scans: {results['deterministic_files']}")
+    if results["file_mismatches"]:
+        lines.append(f"  Mismatched files: {results['file_mismatches']}")
+    lines.append("")
+    lines.append(f"Files scanned: {results['files_scanned']}  Time: {results['total_seconds']:.4f}s")
+    lines.append("")
+    return "\n".join(lines)

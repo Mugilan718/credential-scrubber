@@ -1,0 +1,1 @@
+run_id,date,case_file,task,prompt_version,condition,response_id,model,model_version,temperature,response_file,rater_id,correctness,completeness,consistency,usefulness,misunderstood_value,relationships_preserved,failure_modes,notes
