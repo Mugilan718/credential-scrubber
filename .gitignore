@@ -7,6 +7,10 @@
 __pycache__/
 *.pyc
 
+# Test/benchmark artifacts
+.pytest_cache/
+cs_benchmark_out_*/
+
 # Scan output / sanitized copies (generated, never source of truth)
 output/
 sanitized/

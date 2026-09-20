@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <environment>production</environment>
+  <port>8080</port>
+  <password>fake-Sup3rSecretXml!</password>
+  <apiKey>fake-Wq5mYtXml8bNp3xRk7cVf2sLd9jHo4</apiKey>
+  <region>us-east-1</region>
+</settings>

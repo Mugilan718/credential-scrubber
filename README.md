@@ -63,6 +63,9 @@ rules_default.yaml   Starting rule set for new projects
 templates/    HTML
 static/       CSS + JS frontend
 data/         SQLite database lives here (gitignored if you add version control)
+tests/        Automated regression tests (pytest)
+benchmark/    Synthetic detection/sanitization benchmark dataset + runner
+run_benchmark.py   CLI entry point for the benchmark - see BENCHMARK.md
 ```
 
 ## Extending detection rules
@@ -72,6 +75,23 @@ from `rules_default.yaml`. The visual editor currently covers key names and
 the placeholder allow-list; value-pattern regexes and code-pattern regexes
 are preserved from the defaults but not yet editable in the UI - edit
 `rules_default.yaml` before creating a project if you need to change those.
+
+## Testing & benchmarking
+
+```
+pip install -r requirements-dev.txt
+python -m pytest tests/          # regression test suite
+python run_benchmark.py          # detection/sanitization/performance benchmark
+```
+
+The test suite pins specific bugs found during a security audit (e.g. a
+JSON/XML config key going unredacted, a redaction masking the wrong span
+when a key and its value share text) so they can't silently come back.
+The benchmark measures detection precision/recall/F1, whether a detected
+secret's original value ever survives sanitization, lightweight syntax
+preservation, and performance, against a synthetic labeled dataset - see
+[BENCHMARK.md](BENCHMARK.md) for the full methodology, what each metric
+means, and what the benchmark does and doesn't prove.
 
 ## Known limitations
 

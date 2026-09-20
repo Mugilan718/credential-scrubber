@@ -1,0 +1,9 @@
+# Synthetic benchmark fixture - every value below is fake.
+service:
+  name: benchmark-service
+  environment: production
+  port: 8080
+  endpoint: https://internal.example.com/api
+  encryption_key: "fake-MFEwEQYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFAKEKEYDATA"
+  session_key: dummy
+  region: us-east-1

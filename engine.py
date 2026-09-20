@@ -31,7 +31,7 @@ class NotAGitRepoError(Exception):
     isn't a git repository, so there's no changed-files list to scan."""
     pass
 
-CONFIG_EXTENSIONS = {".properties", ".yml", ".yaml", ".json", ".xml", ".ini", ".conf", ".cfg"}
+CONFIG_EXTENSIONS = {".properties", ".yml", ".yaml", ".json", ".xml", ".ini", ".conf", ".cfg", ".config"}
 CODE_EXTENSIONS = {
     ".java": "java", ".py": "python",
     ".js": "javascript", ".jsx": "javascript", ".ts": "javascript", ".tsx": "javascript",
@@ -227,34 +227,111 @@ def check_ignore(ignore_map, filename, key, rule, value):
     return False, True
 
 
+# Config lines come in more shapes than "key: value"/"key=value" - JSON
+# quoted keys, XML elements, and .config-style <add key=".." value=".."/>
+# pairs all hold a key and a value too, just with different surrounding
+# syntax. Each of these is tried in turn (most structurally specific first;
+# order barely matters in practice since they're mutually exclusive by
+# leading character - "<", '"', or a bareword char). Every pattern captures
+# a named "value" group so callers can redact by its exact span instead of
+# re-searching the line for the value's text (see redact_config_line) -
+# searching by text can hit an earlier, unrelated occurrence of the same
+# text (e.g. "secret_key=secret" - searching for "secret" finds the key
+# first).
+_KV_XML_ATTR_PAIR = re.compile(
+    r'^(?P<prefix>\s*<[\w:.\-]+\s+[^>]*?\bkey\s*=\s*["\'])(?P<key>[^"\']+)'
+    r'(?P<mid>["\'][^>]*?\bvalue\s*=\s*["\'])(?P<value>[^"\']*)(?P<suffix>["\'].*)$',
+    re.IGNORECASE,
+)
+_KV_XML_ELEMENT = re.compile(
+    r'^(?P<prefix>\s*<(?P<key>[A-Za-z_][\w.\-]*)(?:\s[^>]*)?>)(?P<value>[^<]*)(?P<suffix></(?P=key)>\s*)$'
+)
+_KV_JSON_KEY = re.compile(r'^(?P<prefix>\s*"(?P<key>[^"]+)"\s*:\s*)(?P<value>.*?)(?P<suffix>,?\s*)$')
+_KV_BAREWORD = re.compile(r'^(?P<prefix>\s*(?P<key>[A-Za-z0-9_.\-\[\]]+)\s*[:=]\s*)(?P<value>.*)$')
+
+_KV_PATTERNS = (_KV_XML_ATTR_PAIR, _KV_XML_ELEMENT, _KV_JSON_KEY, _KV_BAREWORD)
+
+
+# A bare YAML block-scalar indicator ("|", ">", with an optional chomping
+# "+"/"-" and/or explicit indentation digit, e.g. "|-", ">+4") - like a
+# JSON "{"/"[" opener, this isn't a redactable leaf value; the real
+# content is the indented lines that follow, which find_key_value never
+# sees as this key's value at all (see the block-scalar guard below).
+_YAML_BLOCK_SCALAR = re.compile(r'^[|>][+-]?\d*$')
+
+
 def find_key_value(line):
-    m = re.match(r'^\s*([A-Za-z0-9_.\-\[\]]+)\s*[:=]\s*(.*)$', line)
-    if not m:
-        return None, None
-    return m.group(1), m.group(2)
+    """Extract (key, value, value_start, value_end) from a config line, or
+    (None, None, None, None) if it doesn't look like any recognized shape
+    (redact_value_patterns_only is used instead in that case).
+
+    value_start/value_end are the value's exact character offsets within
+    `line`, enabling span-based redaction.
+    """
+    for pattern in _KV_PATTERNS:
+        m = pattern.match(line)
+        if m:
+            value = m.group("value")
+            stripped = value.strip()
+            if stripped in ("{", "["):
+                # A JSON object/array that continues on later lines, not a
+                # redactable leaf - treating "{" as the whole value would
+                # corrupt the file (its matching close appears lines later).
+                continue
+            if _YAML_BLOCK_SCALAR.match(stripped):
+                # A multi-line YAML block scalar header (e.g. "key: |") -
+                # redacting just the indicator would strip the block-scalar
+                # syntax while leaving its now-orphaned indented body
+                # behind, corrupting the document; leaving the header
+                # alone leaks nothing by itself, since neither the key
+                # name nor "|"/">" is a secret. The body itself is not
+                # scanned - see BENCHMARK.md limitations.
+                continue
+            return m.group("key"), value, m.start("value"), m.end("value")
+    return None, None, None, None
 
 
-def quoted_mask(value):
+YAML_EXTENSIONS = {".yaml", ".yml"}
+
+
+def quoted_mask(value, force_quote=False):
     """Mask a config value, preserving its surrounding quote character (if any).
 
     `value` is the raw text captured after 'key:'/'key=', which still includes
     any quotes the author wrote (e.g. `"secret"`). Replacing that whole span
     with the bare MASK would silently strip the quotes; wrapping the MASK in
     the same quote char keeps the redacted line's quoting style unchanged.
+
+    `force_quote` covers formats (currently: YAML) where an unquoted plain
+    scalar can't safely start with certain characters - MASK's leading '*'
+    is YAML's alias-reference indicator, so a bare MASK on a line that was
+    never quoted to begin with (e.g. `endpoint: https://...`) produces a
+    line that fails to parse as YAML at all (`endpoint: ***REDACTED***`).
+    When set, and the value wasn't already quoted, the replacement is
+    double-quoted instead of left bare - always safe, since MASK contains
+    no characters that need escaping inside a double-quoted YAML scalar.
     """
     v = value.rstrip()
     if len(v) >= 2 and v[0] in ('"', "'") and v[-1] == v[0]:
         return v[0] + MASK + v[0]
+    if force_quote:
+        return '"' + MASK + '"'
     return MASK
 
 
 def redact_config_line(line, rules, report_entries, filename, line_no, ignore_map={}):
-    key, value = find_key_value(line)
+    key, value, value_start, value_end = find_key_value(line)
     if key is None:
         return redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map)
 
     if value.strip() == "":
         return line
+
+    # Only YAML's plain-scalar syntax treats a bare MASK's leading '*' as
+    # meaningful (an alias reference) - see quoted_mask()'s docstring. Every
+    # other format handled here (.properties/.env/JSON/XML/.config/etc.)
+    # is unaffected either way, so this is gated strictly by extension.
+    is_yaml = Path(filename).suffix.lower() in YAML_EXTENSIONS
 
     key_matched = any(key_pattern_matches(p, key, camel_aware=False) for p in rules["key_patterns"])
 
@@ -263,14 +340,13 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
         suppress, changed = check_ignore(ignore_map, filename, key, "key_name_match", value)
         if suppress:
             return line
-        replacement = quoted_mask(value)
+        replacement = quoted_mask(value, force_quote=is_yaml)
         entry = {"file": filename, "line": line_no, "key": key, "rule": "key_name_match",
                   "before": value, "after": replacement}
         if changed:
             entry["previously_ignored_value_changed"] = True
         report_entries.append(entry)
-        new_line = line.replace(value, replacement, 1) if value in line else f"{key}={replacement}"
-        return new_line
+        return line[:value_start] + replacement + line[value_end:]
 
     if is_placeholder(value, rules["placeholder_allowlist"]):
         return line
@@ -287,14 +363,13 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
         suppress, changed = check_ignore(ignore_map, filename, key, reason, value)
         if suppress:
             return line
-        replacement = quoted_mask(value)
+        replacement = quoted_mask(value, force_quote=is_yaml)
         entry = {"file": filename, "line": line_no, "key": key, "rule": reason,
                   "before": value, "after": replacement}
         if changed:
             entry["previously_ignored_value_changed"] = True
         report_entries.append(entry)
-        new_line = line.replace(value, replacement, 1) if value in line else f"{key}={replacement}"
-        return new_line
+        return line[:value_start] + replacement + line[value_end:]
 
     return line
 
@@ -597,6 +672,15 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
         for fname in files:
             src_path = Path(root) / fname
             rel_path = src_path.relative_to(input_dir)
+
+            if src_path.is_symlink():
+                # A symlink can point anywhere on disk the OS user can read
+                # (e.g. into a home directory's SSH keys) - os.walk lists it
+                # as an ordinary file, so without this check it would be
+                # read/copied like one. Skip it entirely rather than
+                # following it or copying it through.
+                files_skipped.append(str(rel_path))
+                continue
 
             if changed_files is not None and rel_path.as_posix() not in changed_files:
                 # Changed-files-only mode: skip entirely rather than copying

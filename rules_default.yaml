@@ -41,8 +41,6 @@ key_patterns:
   - "cert"
   - "keystore"
   - "truststore"
-  - "username"
-  - "port"
 
 # ------------------------------------------------------------------
 # 2. VALUE-PATTERN RULES (applies to config files AND source code)

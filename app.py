@@ -16,6 +16,7 @@ import sys
 import webbrowser
 import threading
 import tkinter as tk
+from collections import OrderedDict
 from tkinter import filedialog
 from pathlib import Path
 
@@ -67,6 +68,25 @@ def strip_sensitive(entries):
     return [{"file": e["file"], "line": e["line"], "key": e.get("key"), "rule": e["rule"],
               "previously_ignored_value_changed": e.get("previously_ignored_value_changed", False)}
             for e in entries]
+
+
+# Raw (unstripped) report entries, in memory only, keyed by scan_id - never
+# written to disk. db.record_scan() only ever receives strip_sensitive()'d
+# entries now, so a scan's real secret values live here for as long as this
+# process keeps running and this scan stays within _MAX_CACHED_SENSITIVE_SCANS
+# of the most recent ones - not indefinitely, in an unencrypted SQLite file,
+# for the life of the project. The trade-off: "reveal original values" and
+# the ignore feature's hash lookup (_lookup_current_value_hash) only work for
+# a scan still held here; older ones degrade gracefully (see both call sites).
+_MAX_CACHED_SENSITIVE_SCANS = 20
+_sensitive_cache = OrderedDict()
+
+
+def _cache_sensitive_report(scan_id, report_entries):
+    _sensitive_cache[scan_id] = report_entries
+    _sensitive_cache.move_to_end(scan_id)
+    while len(_sensitive_cache) > _MAX_CACHED_SENSITIVE_SCANS:
+        _sensitive_cache.popitem(last=False)
 
 
 def _is_str_list(value):
@@ -253,7 +273,8 @@ def api_run_scan(project_id):
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 400
 
-    scan_id = db.record_scan(project_id, files_scanned, len(report_entries), report_entries)
+    scan_id = db.record_scan(project_id, files_scanned, len(report_entries), strip_sensitive(report_entries))
+    _cache_sensitive_report(scan_id, report_entries)
 
     return jsonify({
         "scan_id": scan_id,
@@ -286,19 +307,25 @@ def api_list_ignores(project_id):
 def _lookup_current_value_hash(project_id, file, key, rule):
     """Find this (file, key, rule) finding's raw value in the project's most
     recent scan and hash it, so future scans can tell if the value has since
-    changed. Reuses the value the scan already captured (record_scan stores
-    full before/after, not just the stripped safe view) rather than asking
-    the client to send the real secret through this endpoint - the safe
-    results view's Ignore button never has the raw value to send anyway.
-    Returns None if there's no scan yet or no matching finding in it.
+    changed. Reuses the value the scan already captured, from the in-memory
+    _sensitive_cache (raw values are never persisted to the database - see
+    its module-level comment) rather than asking the client to send the real
+    secret through this endpoint - the safe results view's Ignore button
+    never has the raw value to send anyway.
+
+    Returns None if there's no scan yet, no matching finding in it, or the
+    most recent scan's raw values have aged out of the in-memory cache (e.g.
+    the app was restarted since) - in which case the ignore is still added,
+    just without a value_hash to verify against later (surfaced in the UI as
+    "value tracked: No").
     """
     scans = db.list_scans(project_id)
     if not scans:
         return None
-    latest = db.get_scan_report(scans[0]["id"])
-    if not latest:
+    raw_entries = _sensitive_cache.get(scans[0]["id"])
+    if raw_entries is None:
         return None
-    for entry in latest["report"]:
+    for entry in raw_entries:
         if entry["file"] == file and entry.get("key") == key and entry["rule"] == rule:
             return engine.hash_value(entry["before"])
     return None
@@ -352,15 +379,34 @@ def api_get_sensitive_report(scan_id):
     Sensitive report - includes raw before/after secret values.
     Caller (frontend) is responsible for gating this behind an explicit
     user action and warning. Never cache, log, or export this by default.
+
+    Raw values are never persisted (see _sensitive_cache) - only available
+    here if this scan is still in the in-memory cache (the app hasn't been
+    restarted since, and few enough newer scans have run). Otherwise this
+    returns a 200 with an explanatory message and no entries, rather than a
+    404, since the scan itself did happen and its safe report is still
+    available via /report.
     """
     scan = db.get_scan_report(scan_id)
     if not scan:
         return jsonify({"error": "Scan not found"}), 404
+    raw_entries = _sensitive_cache.get(scan_id)
+    if raw_entries is None:
+        return jsonify({
+            "scan_id": scan["id"],
+            "timestamp": scan["timestamp"],
+            "warning": "Original values for this scan are no longer available. They are "
+                       "kept in memory only (never written to disk) and are cleared once "
+                       "the app restarts or enough newer scans have run. Re-run the scan "
+                       "to reveal current values.",
+            "entries": [],
+            "unavailable": True,
+        })
     return jsonify({
         "scan_id": scan["id"],
         "timestamp": scan["timestamp"],
         "warning": "This report contains real secret values. Do not share, export, or paste this elsewhere.",
-        "entries": scan["report"],
+        "entries": raw_entries,
     })
 
 

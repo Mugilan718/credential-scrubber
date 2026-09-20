@@ -330,6 +330,11 @@ async function loadReport(scanId, animate) {
 
 async function openSensitiveModal(scanId) {
   const data = await api(`/api/scans/${scanId}/sensitive`);
+  if (data.unavailable) {
+    el("sensitiveTable").innerHTML = `<div class="results-empty"><p>${escapeHtml(data.warning)}</p></div>`;
+    el("sensitiveModalOverlay").classList.remove("hidden");
+    return;
+  }
   const cols = "42px 1fr 90px 1fr 74px";
   let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
       <div>Line</div><div>File</div><div>Rule</div><div>Before \u2192 After</div><div></div>
