@@ -1,0 +1,31 @@
+Security Review — `Config.java`
+
+**Finding 1**
+- Severity: High
+- Location: `connect()` method, lines defining `apiKey`, `dbPassword`, `clientSecret`
+- Description: Three secrets (API key, database password, client secret) are hardcoded as string literals directly in source code.
+- Why it matters: Hardcoded credentials committed to source control are exposed to anyone with repo access (including CI logs, forks, and history even after later removal). If these were real values, they would need immediate rotation. This is a textbook credential-exposure pattern regardless of whether the specific values in this fixture are fake.
+- Suggested fix: Load secrets from a secure source at runtime (environment variables, a secrets manager/vault, or an encrypted config store injected via CI/CD) rather than embedding them as literals. Never commit real secret values.
+
+**Finding 2**
+- Severity: High
+- Location: `buildAuthToken()` — the `authToken` built from concatenated string fragments (`"fakeAB12" + "CD34secretEF56" + "GH78token90"`)
+- Description: Another hardcoded secret, but deliberately split into multiple concatenated substrings.
+- Why it matters: Splitting a secret across concatenated literals is a common technique to evade naive regex-based or entropy-based secret scanners (e.g., truffleHog, gitleaks, pre-commit hooks). Whether intentional obfuscation or not, the effect is the same: it defeats automated detection of a credential that shouldn't be in source, making the underlying problem (hardcoded secret) worse because it's harder to catch in review or CI gates.
+- Suggested fix: Same as Finding 1 — pull the token from a secure runtime source. Additionally, flag any pattern of concatenated string fragments assembling into a credential-shaped value as a review red flag, since it indicates possible intentional scanner evasion.
+
+**Finding 3**
+- Severity: Medium
+- Location: `connect()` — `System.out.println(apiKey + dbPassword + clientSecret);`
+- Description: Sensitive secrets are printed to standard output.
+- Why it matters: Output written to stdout commonly ends up in application logs, container logs, CI build output, or terminal history/screen-sharing — all of which are lower-trust surfaces than the application itself. This effectively creates a second, harder-to-control copy of the secrets. Concatenating three values together with no separator also indicates this was likely leftover debug code, not intentional functionality.
+- Suggested fix: Remove the logging of secret material entirely. If confirmation that a value was loaded is needed, log only a non-reversible indicator (e.g., "API key loaded: true" or a redacted form) — never the raw value.
+
+**Finding 4**
+- Severity: Low
+- Location: All secret fields (`apiKey`, `dbPassword`, `clientSecret`, `authToken`) declared as `String`
+- Description: Secrets are held in `String` objects rather than mutable, clearable structures like `char[]`.
+- Why it matters: Java `String` instances are immutable and may remain in the JVM heap (and potentially get interned) for an indeterminate time, making it impossible to proactively wipe the secret from memory. In a heap dump or memory-scraping scenario, this increases exposure window compared to a `char[]` that can be explicitly zeroed after use.
+- Suggested fix: For genuinely sensitive in-memory handling, use `char[]` (or a dedicated secret-handling type) and clear it after use. This is a defense-in-depth improvement, secondary to fixing Findings 1 and 2.
+
+Summary: The core issue is hardcoded credentials (Findings 1 and 2), compounded by the credentials being printed to stdout (Finding 3). Finding 2 is notable beyond a typical hardcoded secret because the string-splitting pattern looks purpose-built to slip past automated secret scanners. All four fields/values should be removed from source and sourced from a proper secrets-management mechanism at runtime.

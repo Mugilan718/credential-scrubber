@@ -1,0 +1,36 @@
+1. **Refactoring**: Replace the hardcoded credential strings (`apiKey`, `dbPassword`, `clientSecret`, `authToken`) with values loaded from environment variables or an external secrets manager/config source, rather than embedding secrets as string literals in source code.
+
+2. **Why it's an improvement**: Hardcoded secrets in source code get committed to version control, appear in build artifacts, and are visible to anyone with repo access — they can't be rotated without a code change/redeploy, and they're a serious security liability even in "synthetic"/example form, since real codebases modeled on this pattern leak credentials this way. Pulling secrets from the environment (or a vault) at runtime separates configuration/secrets from code, follows the twelve-factor app principle, and lets credentials be rotated and scoped per-environment without touching source.
+
+3. **Before/after**:
+
+Before:
+```java
+public void connect() {
+    String apiKey = "<GENERIC_SECRET_1>";
+    String dbPassword = "<PASSWORD_1>";
+    String clientSecret = "<GENERIC_SECRET_2>";
+    System.out.println(apiKey + dbPassword + clientSecret);
+}
+```
+
+After:
+```java
+public void connect() {
+    String apiKey = requireEnv("API_KEY");
+    String dbPassword = requireEnv("DB_PASSWORD");
+    String clientSecret = requireEnv("CLIENT_SECRET");
+    // avoid logging secrets at all; log a non-sensitive confirmation instead
+    logger.info("Connected using configured credentials");
+}
+
+private static String requireEnv(String name) {
+    String value = System.getenv(name);
+    if (value == null || value.isBlank()) {
+        throw new IllegalStateException("Missing required environment variable: " + name);
+    }
+    return value;
+}
+```
+
+Note: as a secondary observation, `System.out.println(apiKey + dbPassword + clientSecret)` also logs secret values directly to stdout, which is itself worth removing regardless of where the values come from.

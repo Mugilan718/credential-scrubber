@@ -1,0 +1,113 @@
+{
+  "experiment_id": "credential_scrubber_ai_eval_full",
+  "experiment_version": "1.0.0-frozen",
+  "status": "completed",
+  "frozen_at": "2026-09-20T13:58:36Z",
+  "engine_commit": "c291785",
+  "engine_commit_subject": "feat: add deterministic semantic placeholders",
+
+  "research_question": "Can sensitive source-code values be sanitized before providing source code to an AI coding agent while preserving enough semantic information for the AI to perform useful software-engineering tasks?",
+
+  "population": {
+    "source": "ai-evaluation/dataset/README.md candidate list (existing, documented, not invented for this freeze)",
+    "file_count": 9,
+    "files": [
+      {"path": "java/Config.java", "language": "java", "file_type": ".java"},
+      {"path": "python/config.py", "language": "python", "file_type": ".py"},
+      {"path": "javascript/config.js", "language": "javascript", "file_type": ".js"},
+      {"path": "typescript/auth.ts", "language": "typescript", "file_type": ".ts"},
+      {"path": "go/config.go", "language": "go", "file_type": ".go"},
+      {"path": "csharp/Config.cs", "language": "csharp", "file_type": ".cs"},
+      {"path": "config/appsettings.json", "language": "config", "file_type": ".json"},
+      {"path": "config/settings.yaml", "language": "config", "file_type": ".yaml"},
+      {"path": "edge_cases/false_positives.properties", "language": "config", "file_type": ".properties", "role": "negative control - no true positives, per benchmark/dataset/cases.jsonl"}
+    ],
+    "note": "All 9 paths are relative to benchmark/dataset/files/. This is the population already documented in ai-evaluation/dataset/README.md's candidate table - no substitution was made."
+  },
+
+  "tasks": [
+    {"id": "explain_code", "prompt_file": "ai-evaluation/prompts/explain_code.md"},
+    {"id": "identify_bug", "prompt_file": "ai-evaluation/prompts/identify_bug.md"},
+    {"id": "security_analysis", "prompt_file": "ai-evaluation/prompts/security_analysis.md"},
+    {"id": "generate_unit_tests", "prompt_file": "ai-evaluation/prompts/generate_unit_tests.md"},
+    {"id": "suggest_refactoring", "prompt_file": "ai-evaluation/prompts/suggest_refactoring.md"},
+    {"id": "explain_config_relationships", "prompt_file": "ai-evaluation/prompts/explain_config_relationships.md", "scope_restriction": "config files only (.json/.yaml/.properties/.xml/.env/.config) per the template's own documented scope - not applicable to the 6 source-code files in this population (see task_applicability_matrix)"}
+  ],
+
+  "conditions": ["original", "sanitized"],
+
+  "grid_size": {
+    "files": 9,
+    "tasks": 6,
+    "conditions": 2,
+    "calculation": "9 x 6 x 2",
+    "expected_total_response_count": 108,
+    "note": "This is the full nominal grid size, frozen as requested. It is NOT the number of responses that will actually be collected - see applicable_response_count and task_applicability_matrix. Cells marked not_applicable in the applicability matrix are part of the frozen 108-cell grid but will not be executed, per explain_config_relationships.md's own documented scope restriction."
+  },
+
+  "task_applicability_matrix": {
+    "note": "applicable = will be run and scored; not_applicable = excluded per the task prompt's own documented scope (not an inconvenience-based removal). A task returning 'no bug found' / 'no findings' / 'little testable logic' / 'no worthwhile refactoring' is still applicable and still run - those are valid, expected, comparable responses per each task's own template design, not N/A.",
+    "explain_code": {"java/Config.java": "applicable", "python/config.py": "applicable", "javascript/config.js": "applicable", "typescript/auth.ts": "applicable", "go/config.go": "applicable", "csharp/Config.cs": "applicable", "config/appsettings.json": "applicable", "config/settings.yaml": "applicable", "edge_cases/false_positives.properties": "applicable"},
+    "identify_bug": {"java/Config.java": "applicable", "python/config.py": "applicable", "javascript/config.js": "applicable", "typescript/auth.ts": "applicable", "go/config.go": "applicable", "csharp/Config.cs": "applicable", "config/appsettings.json": "applicable", "config/settings.yaml": "applicable", "edge_cases/false_positives.properties": "applicable"},
+    "security_analysis": {"java/Config.java": "applicable", "python/config.py": "applicable", "javascript/config.js": "applicable", "typescript/auth.ts": "applicable", "go/config.go": "applicable", "csharp/Config.cs": "applicable", "config/appsettings.json": "applicable", "config/settings.yaml": "applicable", "edge_cases/false_positives.properties": "applicable"},
+    "generate_unit_tests": {"java/Config.java": "applicable", "python/config.py": "applicable", "javascript/config.js": "applicable", "typescript/auth.ts": "applicable", "go/config.go": "applicable", "csharp/Config.cs": "applicable", "config/appsettings.json": "applicable", "config/settings.yaml": "applicable", "edge_cases/false_positives.properties": "applicable"},
+    "suggest_refactoring": {"java/Config.java": "applicable", "python/config.py": "applicable", "javascript/config.js": "applicable", "typescript/auth.ts": "applicable", "go/config.go": "applicable", "csharp/Config.cs": "applicable", "config/appsettings.json": "applicable", "config/settings.yaml": "applicable", "edge_cases/false_positives.properties": "applicable"},
+    "explain_config_relationships": {"java/Config.java": "not_applicable - out of the template's documented scope (source code, not a config file)", "python/config.py": "not_applicable - out of the template's documented scope (source code, not a config file)", "javascript/config.js": "not_applicable - out of the template's documented scope (source code, not a config file)", "typescript/auth.ts": "not_applicable - out of the template's documented scope (source code, not a config file)", "go/config.go": "not_applicable - out of the template's documented scope (source code, not a config file)", "csharp/Config.cs": "not_applicable - out of the template's documented scope (source code, not a config file)", "config/appsettings.json": "applicable", "config/settings.yaml": "applicable", "edge_cases/false_positives.properties": "applicable - in scope (.properties); expected to yield a low-relationship-density response since the file is flat with no nested groups, which is itself a valid negative-control observation for this task"}
+  },
+
+  "applicable_response_count": {
+    "explanation": "108 (nominal grid) minus 12 not_applicable cells (6 files x 1 task x 2 conditions, explain_config_relationships against the 6 source-code files)",
+    "not_applicable_cells": 12,
+    "applicable_cells": 96,
+    "calculation": "108 - 12 = 96"
+  },
+
+  "model_target": {
+    "model_id": "claude-sonnet-5",
+    "display_name": "Claude Sonnet 5",
+    "model_version": "not independently confirmable per-call via the available tooling (Claude Code subagent invocation) - see known_limitations",
+    "temperature": "not independently controllable via the available tooling - platform default used, held constant by omission across all cells",
+    "max_output_tokens": "not independently controllable via the available tooling - no explicit limit set for any cell"
+  },
+
+  "session_isolation_rules": {
+    "one_fresh_independent_session_per_condition_task_file": true,
+    "no_cross_condition_access": "each subagent session's prompt contains only the task template filled with the one file/condition's content - the other condition's content is never included and never referenced",
+    "no_repository_exploration": "each subagent session receives the complete file content embedded directly in its prompt, removing any need to read files; sessions are expected to report zero tool calls, matching Pilot 001 and Pilot 002's precedent",
+    "no_experiment_metadata_supplied_to_evaluated_agent": "the evaluated subagent is never told this is an experiment, never told what Credential Scrubber is, never told a value was sanitized/removed/replaced, and is never shown this manifest, the rubric, or any pilot/experiment file",
+    "no_llm_judge": "no model is ever asked to score, compare, or judge a response - scoring is human-only, per rubric.md",
+    "one_response_per_condition": "no repeated sampling in this frozen design"
+  },
+
+  "sanitized_fixture_generation_method": {
+    "method": "engine.scan_project(input_dir, output_dir, rules, placeholder_mode=True), run against an ISOLATED single-file copy of each candidate file individually - matching the exact methodology already used for Pilot 001 (java/Config.java) and Pilot 002 (config/appsettings.json)",
+    "why_isolated_per_file_scans_not_one_combined_scan": "PlaceholderRegistry assigns ordinals per scan, scoped to whatever set of files is scanned together. Validating this freeze required scanning the whole benchmark/dataset/files/ tree in one pass for efficiency (see validation_report.md), which produces cross-file-shared ordinals (e.g. <ACCESS_TOKEN_7> instead of <ACCESS_TOKEN_1>) purely as an artifact of scan scope, not a property of the file itself. When the actual experiment's sanitized fixtures are generated (a later, not-yet-performed step), each of the 9 files must be scanned in isolation, exactly as Pilot 001/002 did, so every file's sanitized condition gets clean, self-contained <CATEGORY_1>-style numbering independent of directory-traversal order or which other files happen to be scanned alongside it.",
+    "hand_authored_fixtures": false,
+    "engine_modified_for_this_freeze": false,
+    "detection_rules_modified_for_this_freeze": false
+  },
+
+  "human_rubric": {
+    "source": "ai-evaluation/rubric/rubric.md (unmodified, no new dimensions)",
+    "dimensions": ["Correctness", "Completeness", "Consistency", "Usefulness", "Misunderstood a sanitized value?", "Relationships between values preserved?"]
+  },
+
+  "results_schema": {
+    "source": "ai-evaluation/results/results_template.csv (unmodified)",
+    "note": "Already contains matching columns for all six rubric dimensions plus failure_modes and notes - no schema change required, per the prior evaluation-design audit."
+  },
+
+  "prior_pilots": {
+    "pilot_001": {"file": "java/Config.java", "task": "explain_code", "status": "responses collected and scored (provisional, single-pilot)"},
+    "pilot_002": {"file": "config/appsettings.json", "task": "explain_config_relationships", "status": "responses collected and scored (provisional, single-pilot)"},
+    "note": "Both pilots' (file, task) cells are part of this frozen 9x6 grid, not separate from it. Their existing responses/scores are not being reused or copied into this experiment's results automatically - the full experiment, once run, will independently execute all 96 applicable cells, including these two, under this frozen manifest's exact isolation rules."
+  },
+
+  "not_yet_done": {
+    "ai_responses_collected": true,
+    "sanitized_fixtures_generated_for_the_full_9_files": true,
+    "scoring_performed": true,
+    "llm_judge_used": false,
+    "committed_or_pushed": false
+  }
+}

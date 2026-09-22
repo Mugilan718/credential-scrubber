@@ -1,0 +1,19 @@
+Security Review
+
+Finding 1
+- Severity: High
+- Location: Lines 7-9 (`authToken`, `secretKey`, `bearerHeader`)
+- Description: Three variables are declared as hardcoded string literals whose names (`authToken`, `secretKey`, `bearerHeader`) strongly indicate they hold credential/secret material, directly in source code.
+- Why it matters: Hardcoding secrets in source is a security anti-pattern regardless of whether the specific value in this snippet is real or a placeholder. Once a file follows this pattern, it's trivial for a real token/key to be pasted into the same spot during development and committed. Secrets committed to a repo persist in version-control history even after later removal, can be exposed via any repo access (forks, CI logs, build artifacts), and bypass rotation/access-control mechanisms that a secrets manager or env-var injection would provide. This is exactly the pattern credential-scanning tools (gitleaks, trufflehog, GitHub secret scanning) flag.
+- Suggested fix: Do not store tokens/keys/secrets as literals in code. Load them at runtime from environment variables (`process.env.AUTH_TOKEN`, etc.) or a secrets manager (AWS Secrets Manager, Vault, etc.), keep `.env` files out of version control (`.gitignore`), and add a pre-commit secret scanner to CI to catch any accidental hardcoding before merge. If any of these were ever real values, they must be rotated/revoked immediately.
+
+Finding 2
+- Severity: Low
+- Location: Line 9, `bearerHeader`
+- Description: The variable name suggests this stores a full `Authorization: Bearer <token>` header value rather than just a token.
+- Why it matters: Storing pre-formatted auth headers as constants increases the chance the value (including the live token) gets logged verbatim (e.g., via `console.log(headers)` or error dumps), since it looks like ordinary header text rather than an obviously sensitive value.
+- Suggested fix: Construct the header string at request time from a securely-sourced token (`` `Bearer ${getToken()}` ``) rather than storing the composed header as a standing constant, and ensure logging/redaction middleware masks `Authorization` headers.
+
+No other issues (injection, unsafe eval, type problems, etc.) were found — the rest of the file (`normalName`, `retries`, `region`) contains only benign, non-sensitive constants.
+
+Note: The file's own comment states these are synthetic/fake values for a benchmark. That doesn't change the review outcome — a PR reviewer has no way to verify a string literal is "fake" from the code alone, and the finding above is about the pattern (secrets hardcoded in source), which is the actual risk being tested for.

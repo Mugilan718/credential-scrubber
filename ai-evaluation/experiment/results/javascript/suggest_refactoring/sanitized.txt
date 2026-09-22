@@ -1,0 +1,31 @@
+1. **Refactoring:** Group the module-level secrets (`apiToken`, `webhookSecret`) into a single config object loaded from environment variables, and simplify `buildSecret()`'s pointless string concatenation into a plain assignment.
+
+2. **Why it's an improvement:** Hardcoding tokens/secrets as literals in source is a security risk (they end up in version control and build artifacts) and makes rotation/config-per-environment harder; centralizing them in one place makes it obvious where secrets come from and easier to audit. Separately, `buildSecret()`'s `"<GENERIC_SECRET_1>" + "" + ""` is dead, confusing code — string concatenation with empty strings adds no value and just obscures a plain assignment.
+
+3. **Before/after:**
+
+Before:
+```js
+const apiToken = "<ACCESS_TOKEN_1>";
+const webhookSecret = "<GENERIC_SECRET_2>";
+
+function buildSecret() {
+    const secretKey = "<GENERIC_SECRET_1>" +
+        "" +
+        "";
+    return secretKey;
+}
+```
+
+After:
+```js
+const secrets = {
+    apiToken: process.env.API_TOKEN,
+    webhookSecret: process.env.WEBHOOK_SECRET,
+    secretKey: process.env.SECRET_KEY,
+};
+
+function buildSecret() {
+    return secrets.secretKey;
+}
+```

@@ -1,0 +1,8 @@
+I reviewed the code. This file contains only variable declarations with static values — no functions, conditionals, loops, or logic of any kind.
+
+I do not find a functional bug: there is no logic (no conditions, loops, index arithmetic, resource handling, or type coercion) present that could behave incorrectly.
+
+Code-quality observations (not bugs):
+- `secretKey` has an explicit `: string` type annotation while `normalName`, `retries`, `region`, `authToken`, and `bearerHeader` rely on inference, which is inconsistent style within the same file.
+- All the constants are declared but never used/exported anywhere in this snippet, which a linter (e.g., `noUnusedLocals`) would flag as dead code.
+- Naming/purpose mismatch: `bearerHeader` holds only the token value ("Bearer ...") but is named as if it were a full header; if used later as `headers: { Authorization: bearerHeader }` that's fine, but if concatenated again with "Bearer " it would double up — worth a comment clarifying intended usage.

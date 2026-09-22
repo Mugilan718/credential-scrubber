@@ -1,0 +1,16 @@
+1. **Summary:** This is a synthetic Java benchmark fixture — a `Config` class whose only real purpose is to hold hardcoded, fake "secret"-looking string literals so that a credential-scanning tool can be tested against it.
+
+2. **Section breakdown:**
+
+- **Header comment:** Explicitly states this is a synthetic fixture for a benchmark, and every value in the file is fake — not a real credential. This is important context: the intent is to test secret-detection tooling, not to demonstrate real application configuration.
+
+- **Instance fields (`normalField`, `timeout`, `port`, `environment`):** Ordinary, non-sensitive configuration values. These exist as "noise" — realistic-looking config fields that a scanner should *not* flag, giving the benchmark some negative/control cases alongside the positive ones.
+
+- **`connect()` method:** Declares three local variables (`apiKey`, `dbPassword`, `clientSecret`) initialized to placeholder tokens (`<GENERIC_SECRET_1>`, `<PASSWORD_1>`, `<GENERIC_SECRET_2>`), then concatenates and prints them. The placeholders stand in for the shapes of a generic API key, a database password, and an OAuth-style client secret. This method's role is to give a scanner three distinct "should be detected" secret-like assignments in one method, plus a sink (`System.out.println`) where the secret is used/exposed.
+
+- **`buildAuthToken()` method:** Builds a string named `authToken` from `<ACCESS_TOKEN_1>` concatenated with two empty-string literals, then returns it. The odd multi-line string concatenation with empty strings looks like it's testing whether a scanner can still detect a secret when the literal is split across a string-concatenation expression rather than being one clean assignment — i.e., a slightly obfuscated/harder detection case.
+
+3. **Things I'd ask the author about:**
+   - Why `buildAuthToken()` concatenates with two empty strings (`"" + ""`) rather than just returning the single literal — presumably intentional, to test the scanner's handling of multi-part concatenated string construction, but it's worth confirming that's the intended test case rather than leftover scaffolding.
+   - The placeholders (`<GENERIC_SECRET_1>`, `<PASSWORD_1>`, etc.) are clearly templated stand-ins rather than actual string literals — I'd want to know what real-looking values (e.g., `sk_live_...`-style or AWS-key-shaped strings) get substituted in when this fixture is actually run through the scanner, since the detection difficulty depends heavily on that.
+   - Whether `normalField`, `timeout`, `port`, and `environment` are meant purely as false-positive/control fields, or whether `environment = "production"` is itself meant to be a mild trap (e.g., testing that scanners don't over-flag benign-looking string fields).

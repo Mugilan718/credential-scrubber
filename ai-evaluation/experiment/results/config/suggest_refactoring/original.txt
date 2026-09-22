@@ -1,0 +1,31 @@
+1. **Refactoring:** Move `Database.Password` and `ApiKey` out of this config file into environment variables or a secrets manager, leaving only a reference/placeholder in the JSON.
+
+2. **Why it's an improvement:** Plaintext credentials committed to a config file (especially one likely checked into source control) are a serious security risk — anyone with repo access can read the DB password and API key. Separating secrets from configuration follows the standard twelve-factor-app pattern, makes it safe to version-control this file, and lets different environments (dev/staging/prod) supply different secret values without editing code.
+
+3. **Before/after:**
+
+```json
+// Before
+"Database": {
+  "Host": "fake-db.internal.example",
+  "Username": "svc_account",
+  "Password": "fake-hunter2"
+},
+"ApiKey": "fake-Rk8mNpQ2xWvT5hLj9cBs3fYg7uAe1"
+```
+
+```json
+// After (config file, safe to commit)
+"Database": {
+  "Host": "fake-db.internal.example",
+  "Username": "svc_account",
+  "Password": "${DB_PASSWORD}"
+},
+"ApiKey": "${API_KEY}"
+```
+
+```bash
+# Actual secret values supplied at runtime, e.g. via environment:
+export DB_PASSWORD=hunter2
+export API_KEY=Rk8mNpQ2xWvT5hLj9cBs3fYg7uAe1
+```

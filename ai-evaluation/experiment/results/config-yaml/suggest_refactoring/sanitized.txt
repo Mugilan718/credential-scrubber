@@ -1,0 +1,31 @@
+1. **The refactoring**: Move the environment-specific and secret values (`endpoint`, `encryption_key`, `session_key`) out of the committed YAML and into environment variables or a secrets manager, leaving only non-sensitive structural config (`name`, `port`, `region`) in the file.
+
+2. **Why it's an improvement**: Embedding endpoints and secrets directly in a config file checked into source control means every credential rotation requires a code change/redeploy, and anyone with repo access — or anyone who finds the file — gets the secrets. Externalizing them via env vars or a secrets manager separates deployment-time secrets from static config, follows the twelve-factor app principle, and lets you rotate credentials without touching the codebase.
+
+3. **Before/after**:
+
+Before:
+```yaml
+service:
+  name: benchmark-service
+  environment: production
+  port: 8080
+  endpoint: "<URL_1>"
+  encryption_key: "<PRIVATE_KEY_1>"
+  session_key: "<GENERIC_SECRET_1>"
+  region: us-east-1
+```
+
+After:
+```yaml
+service:
+  name: benchmark-service
+  environment: production
+  port: 8080
+  endpoint: "${SERVICE_ENDPOINT}"
+  encryption_key: "${SERVICE_ENCRYPTION_KEY}"   # sourced from secrets manager at runtime
+  session_key: "${SERVICE_SESSION_KEY}"          # sourced from secrets manager at runtime
+  region: us-east-1
+```
+
+(with the actual values injected at deploy time from environment variables or a vault, and the YAML file itself safe to commit and share.)

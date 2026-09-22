@@ -1,0 +1,18 @@
+Grouping of the configuration settings:
+
+**1. Database connection group** — `Database.Host`, `Database.Username`, `Database.Password`
+These three are nested under the same `Database` object and together form one logical unit: the credentials and address needed to connect to a specific database instance. None of them is meaningful alone (a host without credentials, or credentials without a host, can't establish a connection).
+
+**2. Application identity / runtime group** — `AppName`, `Environment`, `Port`
+These describe how this particular instance of the app identifies and runs itself: its name, the deployment environment it's running in, and the network port it listens on. They're commonly set together when standing up an instance, though they aren't tied by any shared credential or endpoint — more a "who/where am I" cluster than a service-connection cluster.
+
+**3. Logging group** — `Logging.Level`
+A single-key nested object. It's structurally grouped (nested under `Logging`) but conceptually independent of everything else — it controls observability behavior, not connectivity or identity.
+
+**4. External API access** — `ApiKey`
+Stands alone. It's presumably used to authenticate against some external/third-party API, but there's no accompanying host/URL or username in this config to group it with, so it can't be tied to the `Database` group or to `CustomerId` with confidence.
+
+**5. `CustomerId`**
+Independent value, likely a tenant/customer identifier used for multi-tenancy or licensing purposes. It doesn't share a namespace or clear functional link with any other field — could plausibly relate to `ApiKey` (e.g., API calls scoped to a customer) but nothing in the config confirms that relationship, so it's safer to list separately than assume.
+
+**Summary of structural vs. logical grouping**: `Database` and `Logging` are explicitly grouped by JSON nesting. `AppName`/`Environment`/`Port` are only implicitly related (top-level, instance-level settings). `ApiKey` and `CustomerId` are flat, top-level, and not clearly tied to any other group — they're the most likely candidates to actually belong to a group not represented here (e.g., a third-party service block) that simply wasn't nested in this file.

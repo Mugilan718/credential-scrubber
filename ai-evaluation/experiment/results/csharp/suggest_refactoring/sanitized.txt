@@ -1,0 +1,33 @@
+1. **Refactoring:** Extract the hardcoded `sessionToken` and `clientSecret` values out of source code and load them from a secure external source (environment variables or a secrets manager), and simplify the pointless string concatenation on `clientSecret`.
+
+2. **Why it's an improvement:** Hardcoded secrets embedded in source code get checked into version control, exposed in build artifacts, and are hard to rotate — this is a serious security risk even in a fixture/demo. Reading them from configuration/environment at runtime keeps secrets out of the codebase and lets them be rotated or scoped per-environment without a code change. The redundant `+ "" + ""` concatenation is also dead code that adds no value and should be removed for clarity.
+
+3. **Before/after:**
+
+```csharp
+// Before
+public void Connect()
+{
+    string normalField = "just some text";
+    int retries = 3;
+    string sessionToken = "<ACCESS_TOKEN_1>";
+    string clientSecret = "<API_KEY_1>"
+        + ""
+        + "";
+    Console.WriteLine(clientSecret + sessionToken);
+}
+```
+
+```csharp
+// After
+public void Connect()
+{
+    string normalField = "just some text";
+    int retries = 3;
+    string sessionToken = Environment.GetEnvironmentVariable("SESSION_TOKEN")
+        ?? throw new InvalidOperationException("SESSION_TOKEN is not configured.");
+    string clientSecret = Environment.GetEnvironmentVariable("CLIENT_SECRET")
+        ?? throw new InvalidOperationException("CLIENT_SECRET is not configured.");
+    Console.WriteLine(clientSecret + sessionToken);
+}
+```

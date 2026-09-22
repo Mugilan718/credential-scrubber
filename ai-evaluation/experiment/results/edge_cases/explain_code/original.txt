@@ -1,0 +1,16 @@
+1. **Summary**: This is a small, deliberately benign `.properties` file used as a test fixture — it sets a handful of ordinary application config values (timeout, port, environment, etc.) that are designed to *look* like they might contain secrets but don't.
+
+2. **By section**:
+
+- **Header comment (lines 1–4)**: States the file's purpose outright — it's a synthetic benchmark fixture for testing a credential/secret scanner. It explicitly warns that several keys contain words like "password", "token", "key", "user", or "admin" as substrings or unrelated terms, and that none of these lines should trigger a false-positive secret detection.
+
+- **Basic app settings (`timeout`, `port`, `environment`, `country`)**: Standard, harmless runtime configuration — a timeout in milliseconds, a network port, a deployment environment label, and a country string. Nothing sensitive here; included as neutral "noise" values.
+
+- **The trap-like entries (`username`, `database`)**: `username = "admin"` and `database = "testdb"` are the kind of lines a naive regex-based secret scanner might flag just because the key name contains "user" or the value is "admin". They're included specifically to test that the scanner doesn't over-trigger on a bare username field with no accompanying password/secret.
+
+- **Word-collision entries (`ghost_writer`, `concert_hall`, `authored_by`, `tokenizer_version`)**: These are the core of the test — each key contains a substring that overlaps with a sensitive-sounding word (`writer`→ no, but conceptually near "key"? more precisely: `ghost_writer` isn't an obvious collision, `authored_by` contains "author" not "auth" exactly, `tokenizer_version` contains "token"). They demonstrate that substring matches inside unrelated compound words (e.g., "tokenizer" containing "token", "authored" resembling "auth") should not be misidentified as credential keys.
+
+3. **Things I'd ask the author about**:
+   - `ghost_writer` and `concert_hall` don't obviously contain any of the four flagged words ("password", "token", "key", "user", "admin") — it's unclear what false-positive pattern they're meant to guard against. Possibly `concert_hall` is meant to collide with something like a substring scan for "key" inside... it doesn't. Worth clarifying what specific detector rule each line is a regression test for.
+   - There's no `password` — or `secret`/`api_key`-named field at all in the fixture, even a benign one (e.g., `password = ""` or a placeholder), which seems like a notable gap if the intent is to cover all four called-out trigger words comprehensively.
+   - It's unclear if this file is meant to be paired with a "should be flagged" counterpart fixture elsewhere, or if it's standalone — that context would clarify how it's consumed by the benchmark harness.

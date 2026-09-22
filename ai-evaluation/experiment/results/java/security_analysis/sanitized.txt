@@ -1,0 +1,27 @@
+Security review of `Config.java`
+
+**Finding 1**
+- Severity: High
+- Location: `connect()` method, lines defining `apiKey`, `dbPassword`, `clientSecret` (the three `String ... = "<...>"` assignments)
+- Description: Secrets (API key, database password, client secret) are hardcoded as string literals directly in source code.
+- Why it matters: Hardcoded credentials get committed to version control history, are visible to anyone with source access (including CI logs, forks, decompiled artifacts), can't be rotated without a code change/redeploy, and are a top-tier target in automated secret-scanning by attackers. Even though these particular values are fake placeholders in this benchmark, the pattern itself is the vulnerability being flagged — in real code this is a credential leak.
+- Suggested fix: Load secrets from a secure source at runtime — environment variables, a secrets manager (Vault, AWS Secrets Manager, etc.), or an encrypted config injected outside the source tree. Never assign literal secret values to fields/locals in `.java` files. Add secret-scanning (e.g., gitleaks/truffleHog) to CI to catch regressions.
+
+**Finding 2**
+- Severity: High
+- Location: `connect()` method, `System.out.println(apiKey + dbPassword + clientSecret);`
+- Description: The concatenated secret values are printed to standard output.
+- Why it matters: Logging secrets to stdout means they end up in application logs, log aggregators, container logs, or terminal history — all of which are typically less access-controlled than the secret store itself, and often retained/backed up for long periods. This dramatically widens the exposure surface for the credentials even if they were sourced securely.
+- Suggested fix: Never log secret material. If confirmation of successful load is needed, log a non-sensitive indicator (e.g., "API key loaded" or a masked form like `sk-***last4`), not the raw value.
+
+**Finding 3**
+- Severity: Medium
+- Location: `buildAuthToken()` method, `authToken` construction and return
+- Description: An access token is hardcoded as a literal and returned by a public method, making it easy for any caller to retrieve and further propagate the secret (e.g., via logs, exceptions, or UI display) with no access control.
+- Why it matters: Even beyond the hardcoding issue in Finding 1, exposing the token through a public getter-like method increases the number of places the secret can leak to (callers may log it, serialize it into responses, include it in error messages, etc.).
+- Suggested fix: Same as Finding 1 — source the token from a secure secret store at runtime; additionally, avoid returning raw secret material from widely-callable methods without clear access control and justification.
+
+**Minor/non-security note**
+- The `+ "" + ""` concatenation in `buildAuthToken()` is dead code / a code smell, not a security issue — worth cleaning up but not part of this review's scope.
+
+No other issues (e.g., injection, deserialization, path traversal, insecure crypto) were found — the file is small and these don't apply here. All three findings above are variations of the same root cause: hardcoded secrets in source plus one instance of logging them.

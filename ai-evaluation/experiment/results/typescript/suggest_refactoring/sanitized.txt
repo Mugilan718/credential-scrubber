@@ -1,0 +1,27 @@
+1. **Refactoring suggested:** Group the secret-like values into a single typed configuration object (e.g. `AuthConfig`) instead of leaving them as three separate loose `const` declarations, and rename `bearerHeader` to reflect that it's actually a *value* (a token), not a header field.
+
+2. **Why it's an improvement:** As written, `authToken`, `secretKey`, and `bearerHeader` are unrelated top-level bindings with inconsistent typing (only one has an explicit annotation) and no indication they belong together conceptually. Bundling them communicates intent (these are auth-related, sensitive values), makes it easier to pass/import them as one unit, and makes it obvious at a glance where all the credential-shaped data lives — which also helps anyone auditing the file for secret handling. `bearerHeader` is also a misleading name: it holds a bearer token value, not an HTTP header (which would look like `"Bearer <token>"` or a header key like `Authorization`).
+
+3. **Before/after:**
+
+```ts
+// Before
+const authToken = "<ACCESS_TOKEN_1>";
+const secretKey: string = "<GENERIC_SECRET_1>";
+const bearerHeader = "<ACCESS_TOKEN_2>";
+```
+
+```ts
+// After
+interface AuthConfig {
+  authToken: string;
+  secretKey: string;
+  bearerToken: string;
+}
+
+const authConfig: AuthConfig = {
+  authToken: "<ACCESS_TOKEN_1>",
+  secretKey: "<GENERIC_SECRET_1>",
+  bearerToken: "<ACCESS_TOKEN_2>",
+};
+```

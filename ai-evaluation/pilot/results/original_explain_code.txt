@@ -1,0 +1,14 @@
+1. **Overall purpose:** This is a small demo/fixture class that models a service configuration holder, mixing ordinary settings with a set of hard-coded "secret" values used to illustrate (for a credential-scanning benchmark) how sensitive strings can appear embedded in source code.
+
+2. **Field declarations (`normalField`, `timeout`, `port`, `environment`):** These are unremarkable configuration fields with literal default values — text, numeric timeout/port, and an environment name. They establish the class as a plausible, realistic-looking config object and provide "noise" around the interesting parts.
+
+3. **`connect()` method:** Declares three local string variables (`apiKey`, `dbPassword`, `clientSecret`) that are each assigned obviously fake, benchmark-labeled secret-like strings (prefixed `fake-`), then concatenates and prints them via `System.out.println`. In a real codebase this pattern — literal credentials embedded directly in code and then logged to stdout — would be a serious secrets-leak issue; here it exists purely as a synthetic positive example for a scanner to detect.
+
+4. **`buildAuthToken()` method:** Builds a string by concatenating several string-literal fragments (`"fakeAB12" + "CD34secretEF56" + "GH78token90"`) into a single `authToken`, then returns it. This simulates the common obfuscation trick of splitting a secret across multiple literals/concatenations so it doesn't appear as one contiguous string — useful for testing whether a credential scrubber can reconstruct/detect split secrets, not just single-literal ones.
+
+5. **Package comment:** The leading comment explicitly states this is a synthetic benchmark fixture and that every value is fake, clarifying intent up front so no one mistakes this for a real leaked-credential file.
+
+**Things I'd ask the original author:**
+- Whether `buildAuthToken()`'s split-literal concatenation is meant to test a *specific* evasion pattern (e.g., scanners that only regex single string literals), and whether more variants (e.g., string formatting, Base64-encoded secrets, char-array building) are covered elsewhere in the benchmark suite.
+- Why `connect()` prints the concatenated secrets via `System.out.println` rather than just assigning them — is the println itself part of what the scanner is expected to flag (secret usage/logging), or just a way to avoid "unused variable" warnings/dead-code elimination by compilers/linters?
+- Whether the four "normal" fields at the top are meant to test false-positive avoidance (i.e., the scanner should *not* flag `timeout`, `port`, `environment` as secrets), which would be useful to confirm since it affects how the benchmark's expected results are scored.

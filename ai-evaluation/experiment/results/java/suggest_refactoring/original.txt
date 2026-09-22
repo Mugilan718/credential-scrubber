@@ -1,0 +1,35 @@
+1. **Refactoring**: Extract the hardcoded secrets (`apiKey`, `dbPassword`, `clientSecret`, and the concatenated `authToken`) out of the source file and load them from an external, git-ignored source such as environment variables or a secrets manager, rather than embedding them as string literals.
+
+2. **Why it's an improvement**: Hardcoded credentials in source code are a serious security risk — they get committed to version control history, are visible to anyone with repo access, and can't be rotated without a code change and redeploy. Loading them from the environment (or a vault) at runtime keeps secrets out of the codebase, allows per-environment configuration, and enables rotation without touching code. As a secondary win, it also removes the awkward, easily-missed string-concatenation obfuscation pattern used for `authToken`, which does nothing to actually protect the value and just makes the code harder to read.
+
+3. **Before/after**:
+
+```java
+// Before
+public void connect() {
+    String apiKey = "fake-Rk8mNpQ2xWvT5hLj9cBs3fYg7uAe1";
+    String dbPassword = "fake-Sup3rSecretPass!2024";
+    String clientSecret = "fake-zP9x2Qn8Lw3kFh7Tj1VbYc5RmA0uEsGd";
+    System.out.println(apiKey + dbPassword + clientSecret);
+}
+```
+
+```java
+// After
+public void connect() {
+    String apiKey = requireEnv("API_KEY");
+    String dbPassword = requireEnv("DB_PASSWORD");
+    String clientSecret = requireEnv("CLIENT_SECRET");
+    // ... use credentials without logging them in plaintext
+}
+
+private static String requireEnv(String name) {
+    String value = System.getenv(name);
+    if (value == null || value.isEmpty()) {
+        throw new IllegalStateException("Missing required environment variable: " + name);
+    }
+    return value;
+}
+```
+
+(Note: the `System.out.println` of the raw secrets is itself a separate problem worth fixing — credentials should never be logged in plaintext.)

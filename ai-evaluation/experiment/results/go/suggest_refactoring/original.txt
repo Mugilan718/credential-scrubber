@@ -1,0 +1,46 @@
+1. **Refactoring:** Replace the hardcoded, ungrouped local variables with a single `Config` struct (or at minimum group the secret values separately from the ordinary settings), so configuration data has an explicit shape instead of being a flat list of loose variables passed around by name.
+
+2. **Why it's an improvement:** As currently written, `apiKey` and `accessToken` are indistinguishable from `normalValue`, `timeout`, and `dbName` — nothing in the code signals that two of these are sensitive credentials versus ordinary settings. A struct (a) documents intent and structure, (b) makes it trivial to add behavior later (e.g., a `String()`/`GoString()` method that redacts secrets so they can never leak via `fmt.Println`/`%v` logging, which is exactly what's happening now), and (c) scales — adding a sixth config value doesn't mean adding another bare local variable.
+
+3. **Before/after:**
+
+Before:
+```go
+func main() {
+	normalValue := "just some text"
+	timeout := 5000
+	dbName := "testdb"
+	apiKey := "fake-Qw8Er2Ty5Ui9Op3As6Df1Gh4"
+	accessToken := "fake-Tk9mXtGo4bQp7wRk2cVf5sLd8jHo3u"
+	fmt.Println(normalValue, timeout, dbName, apiKey, accessToken)
+}
+```
+
+After:
+```go
+type Config struct {
+	NormalValue string
+	TimeoutMS   int
+	DBName      string
+	APIKey      string
+	AccessToken string
+}
+
+// GoString/String redact secrets so accidental logging (fmt.Println, %v, %+v)
+// never prints them in the clear.
+func (c Config) String() string {
+	return fmt.Sprintf("{NormalValue:%s TimeoutMS:%d DBName:%s APIKey:REDACTED AccessToken:REDACTED}",
+		c.NormalValue, c.TimeoutMS, c.DBName)
+}
+
+func main() {
+	cfg := Config{
+		NormalValue: "just some text",
+		TimeoutMS:   5000,
+		DBName:      "testdb",
+		APIKey:      "fake-Qw8Er2Ty5Ui9Op3As6Df1Gh4",
+		AccessToken: "fake-Tk9mXtGo4bQp7wRk2cVf5sLd8jHo3u",
+	}
+	fmt.Println(cfg)
+}
+```

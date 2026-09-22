@@ -1,0 +1,11 @@
+Grouping analysis of the YAML config:
+
+**1. Service identity/networking group — `name`, `environment`, `port`, `endpoint`, `region`**
+These describe *what* the service is and *where/how* it's reached: a benchmark-service running in the `production` environment, listening on port `8080`, exposed via `https://internal.example.com/api`, deployed in `us-east-1`. Port and endpoint are directly linked (the endpoint implies a host/port a client connects to), and `environment`/`region` are deployment-topology metadata that qualify the whole service rather than any single connection detail. All five sit under the same `service:` key, reinforcing that they describe one deployable unit.
+
+**2. Credential/secret material — `encryption_key`, `session_key`**
+Both are secret-like values used for cryptographic/security purposes rather than routing or identity. They're independent of *each other* functionally (one likely encrypts data at rest or in transit, the other likely signs/validates session tokens), but they belong together as a category because both are sensitive key material that would typically be sourced from a secrets manager rather than plaintext config. Note `session_key` is a placeholder (`dummy`) while `encryption_key` is a fake but realistic-looking key string — structurally analogous fields despite the different-looking values.
+
+**Independent/standalone:**
+- `port` and `endpoint` could arguably be split from `name`/`environment`/`region`, but I've grouped them since a port with no accompanying endpoint would be meaningless here — they're tightly coupled.
+- Nothing else stands fully alone; every field falls under either "identity/networking" or "security material," and all are nested under the single `service:` block, so there's no fully orphaned top-level setting in this fixture.

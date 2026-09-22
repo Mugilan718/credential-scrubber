@@ -1,0 +1,68 @@
+## Analysis
+
+This class has very little independently testable logic:
+
+- **Fields** (`normalField`, `timeout`, `port`, `environment`) — private, no getters/setters, never read by any other method. There is no public API surface to exercise them, so they aren't testable at all as written.
+- **`connect()`** — builds a string from three local variables and only `System.out.println`s it. It takes no parameters, returns nothing (`void`), and has no branching/computation — the only observable behavior is "runs without throwing" and, if you want to be thorough, "prints something to stdout." There's no real logic (no conditionals, no external calls, no state mutation) to assert against.
+- **`buildAuthToken()`** — the one method with an actual (if trivial) computation: string concatenation of a literal with two empty-string literals, then returned. This is the only method with a meaningful, verifiable return value.
+
+Given that, I'm not going to invent tests for the private fields or manufacture assertions around `connect()`'s printed content (that would just be re-asserting the literal string back at itself, which verifies nothing about behavior — only that a hardcoded string equals itself). I'll write:
+
+1. One real test for `buildAuthToken()`'s return value.
+2. One minimal smoke test for `connect()` confirming it executes without throwing (the only genuine "behavior" it has), using JUnit 5 (Jupiter), the standard framework for modern Java projects.
+
+## Tests
+
+```java
+package com.example.benchmark;
+
+import org.junit.jupiter.api.Test;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+class ConfigTest {
+
+    /**
+     * Verifies that buildAuthToken() concatenates its literal parts correctly.
+     * Since the extra "" + "" segments contribute nothing, the result should
+     * equal the first literal exactly.
+     */
+    @Test
+    void buildAuthToken_returnsConcatenatedLiteral() {
+        Config config = new Config();
+
+        String token = config.buildAuthToken();
+
+        assertEquals("<ACCESS_TOKEN_1>", token);
+    }
+
+    /**
+     * Verifies buildAuthToken() never returns null, i.e. the concatenation
+     * always produces a non-null String regardless of how the literals change.
+     */
+    @Test
+    void buildAuthToken_neverReturnsNull() {
+        Config config = new Config();
+
+        assertNotNull(config.buildAuthToken());
+    }
+
+    /**
+     * Smoke test for connect(): the only observable contract of this void
+     * method is that it completes without throwing. There is no return
+     * value or externally visible state to assert on beyond that.
+     */
+    @Test
+    void connect_doesNotThrow() {
+        Config config = new Config();
+
+        assertDoesNotThrow(config::connect);
+    }
+}
+```
+
+### Notes on what was intentionally left out
+- No tests for `normalField`, `timeout`, `port`, or `environment` — they have no accessors and are never read anywhere in the class, so there is nothing behavioral to assert; a test touching them would require reflection and would only be testing "reflection works," not the class.
+- No test asserting on the exact concatenated string built inside `connect()` (`apiKey + dbPassword + clientSecret`) — capturing `System.out` and comparing it to the same hardcoded literals the production code uses would be a tautological test, not a verification of behavior.

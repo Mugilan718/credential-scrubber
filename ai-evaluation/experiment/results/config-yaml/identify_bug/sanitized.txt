@@ -1,0 +1,7 @@
+This YAML is a flat static configuration fixture — there's no logic to speak of (no conditionals, loops, references, or computed values), so there isn't a functional "bug" in the sense of incorrect behavior.
+
+No functional bug found.
+
+Code-quality / style concerns (not bugs):
+- Storing `encryption_key` and `session_key` as plaintext values directly in the YAML file is a bad practice for real configs — secrets like these normally belong in a secret manager or environment variable injection, not committed config (though here they're placeholder tokens in a synthetic fixture, so this is only a concern if this pattern were copied into a real file).
+- `environment: production` combined with a `port: 8080` is unusual for a real production service (more commonly a privileged/standard port like 443 is used), but this is a style observation, not an error.

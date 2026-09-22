@@ -1,0 +1,32 @@
+1. Suggested refactoring: Extract the hard-coded `sessionToken` and `clientSecret` literals into configuration (e.g. environment variables, a secrets manager, or `IConfiguration`), rather than embedding them as string literals in source code, and stop writing secrets to `Console.WriteLine`.
+
+2. Why it's an improvement: Hard-coded credentials in source get committed to version control, are visible to anyone with repo access, and can't be rotated without a code change/redeploy. Logging them to the console also risks leaking them into log files or terminal history. Pulling them from a secure external source and never printing them removes both exposure paths and lets secrets be rotated independently of the codebase.
+
+3. Before/after:
+
+Before:
+```csharp
+public void Connect()
+{
+    string sessionToken = "fake-P9xN3vLk7QsWz1RtYd5Fj8Hm";
+    string clientSecret = "fake-5tGh8Jk1"
+        + "Qw3Er6Ty"
+        + "Ui9Op2As";
+    Console.WriteLine(clientSecret + sessionToken);
+}
+```
+
+After:
+```csharp
+public void Connect()
+{
+    string sessionToken = _configuration["Auth:SessionToken"]
+        ?? throw new InvalidOperationException("Session token not configured.");
+    string clientSecret = _configuration["Auth:ClientSecret"]
+        ?? throw new InvalidOperationException("Client secret not configured.");
+
+    // use the values to authenticate; never log or print secret material
+    AuthenticateWith(clientSecret, sessionToken);
+}
+```
+(`_configuration` injected via `IConfiguration`, backed by environment variables, user secrets, or a secrets manager — not checked into source.)

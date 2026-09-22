@@ -1,0 +1,5 @@
+dimension,n_pairs,nonzero_pairs,median_delta,mean_delta,wilcoxon_statistic,raw_p_value,holm_adjusted_p_value,effect_size,ci_lower,ci_upper,ci_method,alpha,significant_after_holm
+correctness,48,1,0.0,0.020833,0.0,0.317311,0.317311,1.0,0.0,0.0,"percentile bootstrap (manual, BCa unavailable/failed)",0.05,False
+completeness,48,6,0.0,-0.25,0.0,0.026434,0.052869,-1.0,0.0,0.0,"percentile bootstrap (manual, BCa unavailable/failed)",0.05,False
+consistency,48,0,0.0,0.0,NA,NA,NA,NA,0.0,0.0,degenerate (all values identical),0.05,NA
+usefulness,48,7,0.0,-0.25,0.0,0.015764,0.047292,-1.0,0.0,0.0,"percentile bootstrap (manual, BCa unavailable/failed)",0.05,True

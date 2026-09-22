@@ -1,0 +1,12 @@
+This file contains no independently testable logic. It's a flat set of module-level constant declarations (`normalName`, `retries`, `region`, `authToken`, `secretKey`, `bearerHeader`) — there are no functions, classes, branches, exports, or computations of any kind. Every value is a literal assigned directly to a `const`.
+
+There is nothing here for a unit test to exercise:
+
+- No functions/methods to invoke with varying inputs.
+- No conditional logic, loops, or transformations that could produce divergent outputs.
+- No exported API surface (no `export` keywords) — the module doesn't even expose these constants to be imported elsewhere.
+- Testing "does `retries` equal `3`" or "does `region` equal `'us-east-1'`" would just be re-asserting the literal back at itself — a change to the test would always move in lockstep with a change to the source, so it can never catch a regression. That's not a meaningful test, it's a tautology.
+
+If this file is a fixture (as the comment suggests — "Synthetic benchmark fixture") used as input data for some other tool (e.g., a credential-scrubbing scanner being benchmarked), the logic worth testing lives in that other tool (the scrubber itself: does it correctly flag `authToken`, `secretKey`, and `bearerHeader` as credentials while leaving `normalName`, `retries`, and `region` alone?), not in this fixture file. I'd need to see that scanner's source to write meaningful tests.
+
+If you can point me to the actual scrubber/detector logic this fixture is meant to exercise, I can write real tests (I'd default to Jest or Vitest for a TS project) against that instead.

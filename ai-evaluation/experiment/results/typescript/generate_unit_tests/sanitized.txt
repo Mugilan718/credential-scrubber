@@ -1,0 +1,15 @@
+This file has no independently testable logic. It consists entirely of module-level constant declarations (strings and a number) with no functions, classes, exported behavior, conditionals, or computation of any kind:
+
+```ts
+const normalName = "hello world";
+const retries = 3;
+const region = "us-east-1";
+
+const authToken = "<ACCESS_TOKEN_1>";
+const secretKey: string = "<GENERIC_SECRET_1>";
+const bearerHeader = "<ACCESS_TOKEN_2>";
+```
+
+There is nothing here to assert against beyond "does this literal equal that literal," which would just be re-stating the source file in test form — it wouldn't catch any real regression, since the only way this test could fail is if someone edits the constant, which is itself the intended change. A meaningful unit test needs some transformation, branch, or side effect to verify (a function's return value, a class's behavior, an error condition, etc.), and none of that exists in this file.
+
+If you'd like, I can write tests once this file has actual logic attached to these values (e.g. a function that validates `retries`, formats `region` into a URL, or masks `authToken`/`secretKey` before logging) — but for the file as given, writing tests would just be padding, not verification.

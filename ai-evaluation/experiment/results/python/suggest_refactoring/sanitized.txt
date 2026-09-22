@@ -1,0 +1,22 @@
+1. **Suggested refactoring:** Load the two hardcoded secrets (`api_key` and `API_SECRET`) from environment variables, the same way `DB_PASSWORD` already is, and drop the empty-string concatenation used to build `API_SECRET`.
+
+2. **Why it's an improvement:** `DB_PASSWORD` correctly avoids embedding a real secret in source by reading from the environment, but `api_key` and `API_SECRET` are inconsistent with that pattern — hardcoding credential-shaped values in code is a security risk (they end up in version control/history) and the pattern is inconsistent across the three secrets in the same module. Additionally, `API_SECRET` is built by concatenating a string literal with two empty strings, which is dead code that adds no value and obscures intent — it should just be a single string (or removed entirely once sourced from the environment).
+
+3. **Before/after:**
+
+```python
+# Before
+api_key = "<GENERIC_SECRET_2>"
+
+API_SECRET = (
+    "<GENERIC_SECRET_1>"
+    ""
+    ""
+)
+```
+
+```python
+# After
+api_key = os.getenv("API_KEY", "")
+API_SECRET = os.getenv("API_SECRET", "")
+```

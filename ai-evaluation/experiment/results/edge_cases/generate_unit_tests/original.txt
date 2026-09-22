@@ -1,0 +1,9 @@
+## Analysis
+
+This file contains no testable logic. It is a `.properties` file consisting entirely of static key = value declarations (a timeout number, a port number, a few quoted strings). There are no expressions, no computed values, no conditionals, no functions, no parsing/transformation rules defined *within the file itself* — just literal configuration data.
+
+A "unit test" needs a unit of *behavior* to exercise. Reading a `.properties` file and asserting `port == 8080` isn't testing logic — it's just re-asserting the same literal value the file already states, which is a tautology, not a test. I'm not going to fabricate tests like that, since they wouldn't catch any real regression (the only way such a test could ever fail is if someone edits the fixture itself).
+
+One thing worth flagging: the file's own comment ("None of these should ever be flagged...") and its context (directory `New-credential-scrubber`) strongly suggest this is a **fixture** for testing a *separate* credential-scrubbing tool — i.e., the interesting behavior ("does the scrubber correctly ignore `username = "admin"`, `tokenizer_version = "v2"`, `authored_by = "..."`, etc., as non-secrets") lives in that scrubber's detection code, not in this `.properties` file. If you'd like, I can look for that scrubber's source and write real unit tests against it (e.g., using pytest or Jest, depending on its language) that load this fixture and assert it produces zero findings/flags. But that would be testing the scrubber, not this file — this file has nothing to unit test on its own.
+
+If you can point me to the credential-scrubbing logic this fixture is meant to exercise, I'll write proper tests against it instead.

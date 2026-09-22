@@ -1,0 +1,89 @@
+{
+  "pilot_id": "pilot_002_json_appsettings_explain_config_relationships",
+  "status": "prepared_not_run",
+  "purpose": "Second evaluation-procedure pilot: a config file (JSON, nested structure) with three sensitive values in three distinct categories, run against explain_config_relationships.md instead of explain_code.md. No model has been called yet.",
+
+  "engine": {
+    "commit": "c291785",
+    "commit_subject": "feat: add deterministic semantic placeholders",
+    "entry_point": "engine.scan_project()",
+    "note": "Engine was not modified to produce this pilot - no new detection rules, no code changes. Both files below are direct, unedited engine input/output."
+  },
+
+  "source_file": {
+    "candidate_list_source": "ai-evaluation/dataset/README.md, candidate #7",
+    "dataset_path": "benchmark/dataset/files/config/appsettings.json",
+    "language": "config",
+    "file_type": ".json",
+    "why_selected": "See ai-evaluation/pilot-002/README.md 'Why this file' section and the prior Pilot 002 candidate-selection audit. Summary: multiple detected sensitive values across three distinct categories (unlike Pilot 001, where two of three collapsed to the generic GENERIC_SECRET category); a genuine nested-grouping relationship (Database.Host + Database.Password) to test; structurally unlike Java (nested JSON object, no code semantics); and the only one of the 9 candidate files with no 'Synthetic benchmark fixture' disclosure comment (JSON has no comment syntax)."
+  },
+
+  "task": {
+    "prompt_template": "ai-evaluation/prompts/explain_config_relationships.md",
+    "task_name": "explain_config_relationships",
+    "why_this_task_not_explain_code": "explain_config_relationships.md's own scope note restricts it to config files (.json/.yaml/.properties/.xml/.env/.config) and explicitly names this exact file/structure as its clearest test case: 'Database.Host, Database.Username, and Database.Password are already nested under one object in the original file, so this task is partly about whether that grouping survives sanitization structurally... and whether the model still narrates it correctly in prose.' dataset/README.md also lists this file's best-suited task as 'Explain configuration relationships', not explain_code. Using explain_code.md here would be a looser fit (per the Pilot 002 candidate-selection audit) since the template's code-explanation framing suits source files better than a config document.",
+    "scope_note_from_template": "Scope: config files only (.json, .yaml, .properties, .xml, .env, .config) - not run against source-code files.",
+    "rubric_dimensions_primarily_exercised": ["correctness", "completeness", "relationships between values preserved"]
+  },
+
+  "original_condition": {
+    "directory": "ai-evaluation/pilot-002/original/config/appsettings.json",
+    "produced_by": "Verbatim copy of benchmark/dataset/files/config/appsettings.json - byte-for-byte identical (diffed, confirmed). Never passed through the engine.",
+    "verified_identical_to_dataset_source": true
+  },
+
+  "sanitized_condition": {
+    "directory": "ai-evaluation/pilot-002/sanitized/config/appsettings.json",
+    "produced_by": "engine.scan_project(input_dir, output_dir, rules, placeholder_mode=True) run against an isolated single-file copy of the dataset directory (config/appsettings.json only, not the whole config/ directory, so the scan is unambiguously scoped to this one file). File content copied verbatim from the engine's actual output directory - not hand-authored or hand-edited.",
+    "placeholder_mode": true,
+    "placeholders_generated": [
+      {"line": 9, "key": "Database.Host", "category_assigned": "URL", "token": "<URL_1>", "rule": "key_name_match", "note": "F1-regression ground-truth case (JSON quoted key); nested inside the Database object"},
+      {"line": 11, "key": "Database.Password", "category_assigned": "PASSWORD", "token": "<PASSWORD_1>", "rule": "key_name_match", "note": "short, low-entropy secret, only catchable via JSON key match, not entropy heuristic; nested inside the Database object"},
+      {"line": 13, "key": "ApiKey", "category_assigned": "API_KEY", "token": "<API_KEY_1>", "rule": "key_name_match", "note": "top-level key, F1-regression ground-truth case (JSON quoted key)"}
+    ],
+    "category_diversity_note": "Unlike Pilot 001 (java/Config.java), where apiKey and clientSecret both resolved to the generic GENERIC_SECRET category due to a code-identifier regex-backtracking quirk, all three values here resolve to three distinct, specific categories (URL, PASSWORD, API_KEY). This is because these are config-key matches (redact_config_line's _most_specific_category path), not source-code-identifier matches (redact_code_line's single-keyword-capture path) - the config-key path already reconciles multiple matching key_patterns correctly. Confirmed by actually running the engine for this pilot, not merely predicted.",
+    "customer_id_gap": {
+      "key": "CustomerId",
+      "line": 14,
+      "original_value": "PF001",
+      "sanitized_value": "PF001",
+      "status": "unchanged - intentional, documented engine gap",
+      "explanation": "No customer/user-identifier detection rule exists in the engine today (see BENCHMARK.md Limitations and cases.jsonl case json_011_customer_id_gap, expected_detection: false). This is not a bug introduced by this pilot and was not modified or worked around - CustomerId is left exactly as-is in both the original and sanitized files, verified identical byte-for-byte."
+    },
+    "no_new_detection_rules_added": true,
+    "engine_not_modified": true
+  },
+
+  "verification": {
+    "expected_detected_values_matched_ground_truth": "benchmark/dataset/cases.jsonl case ids json_007_host_key_f1, json_009_password_key_f1, json_010_apikey_f1, all expected_detection=true at the documented lines - matched exactly. json_011_customer_id_gap (expected_detection=false) also confirmed unchanged.",
+    "mask_mode_and_placeholder_mode_detection_shape_identical": true,
+    "original_sensitive_values_absent_from_sanitized_output": true,
+    "leak_check_method": "For each placeholder-mode finding, confirmed entry['before'] (the raw fake secret text, quotes included) does not occur anywhere in the sanitized file text.",
+    "leaks_found": [],
+    "three_detected_values_distinguishable": "Confirmed: three distinct tokens (<URL_1>, <PASSWORD_1>, <API_KEY_1>), no collision.",
+    "database_host_and_password_remain_structurally_related": "Confirmed via json.loads() on the sanitized file: Database.Host and Database.Password both remain nested inside the same 'Database' object (alongside the untouched, correctly-unflagged Database.Username), exactly as in the original.",
+    "line_count_preserved": true,
+    "original_line_count": 15,
+    "sanitized_line_count": 15,
+    "syntax_check": {
+      "method": "benchmark/syntax_check.py check_syntax('.json', text) - real parser (json.loads), not heuristic, since JSON is one of the engine's REAL_PARSER_EXTENSIONS",
+      "original_result": "valid",
+      "sanitized_result": "valid",
+      "additional_check": "json.loads() run directly on the sanitized text also succeeded; parsed object's 'Database' key confirmed to still be a nested object containing Host/Username/Password as expected."
+    },
+    "determinism_check": "placeholder_mode=True scan run twice on the same isolated input copy; sanitized output byte-for-byte identical across both runs.",
+    "determinism_result": "identical",
+    "hand_authored_fixture_used": false
+  },
+
+  "known_benchmark_limitations_applicable_to_this_file": [
+    "CustomerId/customer_id detection gap - see customer_id_gap above (BENCHMARK.md Limitations).",
+    "The placeholder category mapping is a small, best-effort table (BENCHMARK.md Limitations) - not relevant to a category mismatch on THIS file (all three categories resolved cleanly), but a general caveat that applies project-wide.",
+    "113-case benchmark is not exhaustive (BENCHMARK.md Limitations) - this file's 3 true-positive cases are a small subset of it."
+  ],
+
+  "model_response_status": {
+    "status": "NOT COLLECTED - no model has been called, no AI evaluation has been run, no response exists for either condition",
+    "note": "This metadata.json documents preparation only, per the task that created it. Collecting responses (Condition A/B) is a separate, later step, matching Pilot 001's own original_explain_code.txt / sanitized_explain_code.txt / results/README.md pattern once it is actually run."
+  }
+}

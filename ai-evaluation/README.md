@@ -1,7 +1,28 @@
-# AI-Agent Evaluation — Phase 2 (Preparation Only)
+# AI-Agent Evaluation — Phase 2
 
-**Status: design/preparation phase. No AI experiment has been run. This
-directory contains no AI-generated content and no results.**
+**Status: completed.** The frozen experiment defined in `experiment/`
+(9 files × 6 tasks × 2 conditions, 96 applicable responses) has been
+executed, human-scored against the frozen rubric, and statistically
+analyzed.
+
+**What is complete:**
+- 96 AI responses collected: 48 Original, 48 Sanitized (`experiment/results/`).
+- Human evaluation of all 96 responses against `rubric/rubric.md` is complete, with an independent scoring-integrity audit (`experiment/scoring_integrity_audit.md`).
+- Descriptive statistical analysis is complete (`experiment/analysis/descriptive_results.md`).
+- Inferential statistical analysis is complete — paired Wilcoxon signed-rank tests, Holm-Bonferroni correction across the four primary dimensions, bootstrap confidence intervals (`experiment/analysis/inferential_results.md`).
+- A synthesized results-and-discussion write-up is available (`experiment/analysis/results_and_discussion.md`).
+- Four research figures are available (`experiment/analysis/figures/`, documented in that directory's own README).
+
+**How the responses were produced, and what that does and doesn't mean:**
+each of the 96 AI responses was collected from an independent Claude Code
+subagent session, used here only as this evaluation's controlled proxy
+for "an AI coding agent reading the file" (see `experiment/README.md`'s
+isolation rules — one fresh session per cell, no cross-condition access,
+no experiment metadata shown to the evaluated session). **This is a
+property of the evaluation methodology, not a feature or integration of
+Credential Scrubber itself** — nothing in this directory changes, calls,
+or depends on `engine.py`, and the Credential Scrubber application has no
+integration with Claude Code, any other agent, or any live API.
 
 This is the second phase of turning Credential Scrubber from a security
 tool into a measurable research project (Phase 1 was the synthetic
@@ -10,10 +31,6 @@ the engine find and correctly mask the secret?" This phase asks a
 different, harder question that Phase 1 cannot answer on its own: **if
 sanitization works perfectly, does the AI agent reading the sanitized
 code still do useful work?**
-
-Nothing in this directory changes, calls, or depends on `engine.py`.
-`ai-evaluation/` is documentation and experiment scaffolding, reviewed and
-committed before any model is ever called.
 
 ## Research objective
 
@@ -49,7 +66,7 @@ never by a standalone score on either condition alone.
 | Asks | Did the engine detect and correctly mask the secret? | Given a *correctly* sanitized file, is it still useful to an AI agent? |
 | Subject | `engine.py`'s output | An AI model's output, given `engine.py`'s output as input |
 | Ground truth | Machine-checkable (regex/parse/string match) | Human-rated (a rubric, not an oracle) |
-| Status | Implemented, automated, 113 cases | Design only in this phase - no cases have been run |
+| Status | Implemented, automated, 113 cases (no committed run-results file — see `BENCHMARK.md`) | Completed - 96 applicable cells run, human-scored, and analyzed |
 
 Phase 2 assumes Phase 1's detection/sanitization correctness as a
 *precondition*, not something it re-tests. A file that leaks a secret
@@ -235,8 +252,11 @@ placeholder-mode-specific metrics below.)*
 4. A human rater scores both responses independently against the rubric
    (`rubric/`), without being told (at scoring time) which response came
    from which condition where practical (see "Experimental controls").
-5. Record everything in `results/` - raw responses, ratings, and any
-   observed failure mode - before drawing any conclusion.
+5. Record everything in `experiment/results/` - raw responses, ratings,
+   and any observed failure mode - before drawing any conclusion. (The
+   original `results/` directory documents the schema this follows; the
+   actual completed data lives under `experiment/results/` - see
+   `results/README.md`.)
 6. Compare sanitized-condition ratings against original-condition ratings
    *per task, per file* - never aggregated into one number across tasks,
    since "explain the code" and "generate unit tests" are not
@@ -284,6 +304,12 @@ fixed - varying only the presence/absence of sanitization:
 
 ## Known limitations
 
+*A concise, public-facing summary. For the complete limitations list see
+`experiment/analysis/results_and_discussion.md`'s "What the experiment
+does NOT establish" section; for limitations specific to the statistical
+methods used, see `experiment/analysis/inferential_results.md`'s
+"Statistical limitations" section.*
+
 - **YAML block-scalar bodies are not scanned by the engine** (a
   documented, pre-existing gap - see `BENCHMARK.md`). This phase does
   not fix it and does not route block-scalar content through the
@@ -292,9 +318,13 @@ fixed - varying only the presence/absence of sanitization:
   nothing about real, messier production code - variable naming
   conventions, comment density, and secret placement in the wild are all
   more varied than a small hand-built dataset.
-- **The first AI experiment (once run) will be small** - on the order of
-  5-10 files, a handful of tasks, one model. This is a pilot to shake out
-  methodology problems, not a statistically powered study.
+- **The completed AI experiment is small** - 9 files, 6 task types (one
+  applicable only to the 3 config-shaped files), one model
+  (`claude-sonnet-5`, via Claude Code subagent sessions). This was a
+  pilot-scale experiment to establish methodology and produce an initial
+  measurement, not a large, purpose-powered study - see
+  `experiment/analysis/inferential_results.md`'s own statistical
+  limitations for exactly what small-sample caveats apply to its results.
 - **Human evaluation introduces subjectivity.** Ratings are ordinal
   opinions from whoever scores them, not an objective ground truth the
   way Phase 1's detection metrics are. Multiple independent raters and an
@@ -312,33 +342,69 @@ fixed - varying only the presence/absence of sanitization:
   delta when a value is replaced by a well-formed placeholder versus left
   in the clear.
 
-## What is intentionally NOT being evaluated yet
+## What this phase intentionally does not include
 
-- No integration with Claude Code, any other agent, or any live API.
-- No automated LLM-as-judge - all rubric scoring in this phase is by a
-  human rater reading the raw response.
-- No UI, no new engine feature, no change to `engine.py`'s actual
-  redaction behavior.
-- No fix for the YAML block-scalar-body gap.
-- No statistical significance testing (sample size doesn't support it
-  yet).
-- No claim, anywhere in this phase's output, that sanitization "makes AI
-  usage secure" - only a measured comparison of two response sets, once
-  an experiment is actually run.
+- **No integration between the Credential Scrubber application and
+  Claude Code, any other agent, or any live API.** The completed
+  experiment's AI responses came from independent Claude Code subagent
+  sessions used purely as the evaluation's proxy for "an AI coding
+  agent" - that is a property of how the evaluation was run, not a
+  feature of `engine.py` or the desktop app (see the status section
+  above).
+- **No automated LLM-as-judge** - all rubric scoring, for all 96
+  responses, was done by a human rater reading the raw response.
+- **No UI change, no new engine feature, no change to `engine.py`'s
+  actual redaction behavior** - this phase evaluates the existing,
+  unmodified engine's `placeholder_mode=True` output. Placeholder mode
+  is real, tested, and used to produce this experiment's sanitized
+  fixtures, but it is reachable today only via direct `engine.py` calls
+  and `run_benchmark.py --placeholder-mode` - the desktop app's scan
+  route does not expose it, and this phase does not add that wiring.
+- **No fix for the YAML block-scalar-body gap** (still open, see
+  `BENCHMARK.md`).
+- **No claim, anywhere in this phase's output, that sanitization "makes
+  AI usage secure"** - only a measured, per-cell comparison of two
+  response sets, now that the experiment has been run, scored, and
+  analyzed. Formal paired hypothesis testing (Wilcoxon signed-rank,
+  Holm-Bonferroni-corrected) was performed and is reported in
+  `experiment/analysis/inferential_results.md` - but at this
+  experiment's pilot scale (9 files, 48 paired comparisons), not as a
+  study explicitly powered in advance for a target effect size, and
+  never as evidence that sanitization is universally safe or has no
+  effect (see that document's own limitations section).
 
 ## Directory contents
 
 ```
 ai-evaluation/
-├── README.md            This file.
+├── README.md               This file.
 ├── dataset/
-│   └── README.md        How the first experiment's files are selected; candidate list.
+│   └── README.md           How the experiment's 9 files were selected; candidate list.
 ├── prompts/
-│   ├── README.md         Prompt-design principles (determinism, no condition leakage).
-│   └── *.md               One fixed template per task.
+│   ├── README.md            Prompt-design principles (determinism, no condition leakage).
+│   └── *.md                  One fixed template per task.
 ├── rubric/
-│   └── rubric.md         Human evaluation rubric (1-5 ordinal, multiple dimensions).
-└── results/
-    ├── README.md          Schema for recording results.
-    └── results_template.csv   Empty template - no fabricated data.
+│   └── rubric.md            Human evaluation rubric (1-5 ordinal, six dimensions).
+├── results/
+│   ├── README.md             Original results schema/scaffold - superseded by experiment/results/ (see that README).
+│   └── results_template.csv  Empty template, kept for the schema it documents.
+├── pilot/, pilot-002/        Two earlier single-cell pilots (one file x one task each), kept for record; superseded by experiment/.
+└── experiment/                The completed, frozen 9-file x 6-task x 2-condition experiment.
+    ├── README.md                     Frozen design: population, tasks, isolation rules, completion status.
+    ├── manifest.json                 Machine-readable frozen design + completion status.
+    ├── validation_report.md          Per-file engine validation the freeze was built on.
+    ├── collection_integrity_audit.md Read-only audit of the 96 collected raw responses.
+    ├── scoring_integrity_audit.md    Read-only audit of the completed human evaluation.
+    ├── sanitized/                    The 9 frozen sanitized fixtures (engine.py, placeholder_mode=True).
+    │                                  (Original-condition responses use benchmark/dataset/files/ directly -
+    │                                   there is no separate experiment/original/ copy.)
+    ├── results/                      Raw AI responses + human evaluation, one subdirectory per candidate file
+    │   └── <candidate>/<task>/{original,sanitized}.txt, batch_record.md, human_evaluation.md
+    └── analysis/                     Descriptive + inferential statistical analysis and figures.
+        ├── evaluation_dataset.csv, paired_deltas.csv       Structured scoring data.
+        ├── descriptive_results.md                          Descriptive statistics (no significance tests).
+        ├── inferential_results.md, run_inferential_analysis.py   Paired Wilcoxon/Holm/bootstrap analysis + its script.
+        ├── results_and_discussion.md                       Synthesized research write-up.
+        ├── generate_figures.py                             Figure-generation script.
+        └── figures/                                        4 PNG research figures + README.md.
 ```

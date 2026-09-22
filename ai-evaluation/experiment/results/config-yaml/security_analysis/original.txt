@@ -1,0 +1,27 @@
+## Security Review Findings
+
+**1. Severity: High**
+**Location:** `service.encryption_key` (line 7)
+**Description:** An encryption key is stored as a plaintext literal directly in the YAML config.
+**Why it matters:** Config files like this routinely end up in version control, CI logs, build artifacts, or get shared/copy-pasted between environments. Once a key is committed, it lives in history forever (even if later "rotated out" of the working file) and is visible to anyone with repo/log access. If this pattern is used with a *real* key in practice (this one is explicitly labeled fake, but the pattern is what matters for review purposes), it constitutes a full compromise of whatever the key protects. Config should never carry key material directly.
+**Suggested fix:** Replace with a reference/indirection — e.g., pull from a secrets manager (Vault, AWS Secrets Manager, GCP Secret Manager) or an environment variable injected at deploy time (`encryption_key: ${ENCRYPTION_KEY}`), and ensure the file is covered by `.gitignore`/secret-scanning pre-commit hooks if any real values could land there.
+
+**2. Severity: Medium**
+**Location:** `service.session_key` (line 8)
+**Description:** Same anti-pattern as the encryption key — a secret-shaped field (`session_key`) holding an inline literal value, here just `dummy`.
+**Why it matters:** Even though the placeholder value itself isn't sensitive, having a dedicated field for a session-signing key hardcoded into a static config file normalizes storing secrets in config rather than loading them from a secure secret store at runtime. This makes it easy for a real value to accidentally be committed later, and complicates key rotation (requires a code/config deploy rather than an out-of-band secret update).
+**Suggested fix:** Same as above — source via environment variable or secrets manager, and document that this field must never contain a literal secret in committed config.
+
+**3. Severity: Low**
+**Location:** `service.endpoint` (line 6)
+**Description:** The config exposes an internal hostname (`internal.example.com`) and its API path structure.
+**Why it matters:** If this file is ever shared outside its intended audience (public repo, ticket attachment, log dump), it discloses internal network/service topology, which is useful reconnaissance information for an attacker mapping the environment.
+**Suggested fix:** Where possible, keep internal endpoint names out of files with broader distribution, or ensure this config class is treated as restricted/internal-only, with access review on who can read it.
+
+**4. Severity: Low**
+**Location:** File as a whole, in combination with `environment: production`
+**Description:** The file mixes a `production` environment designation with inline secret-shaped fields and no visible mechanism (comments, schema, tooling reference) indicating these values are meant to be overridden/injected at deploy time.
+**Why it matters:** Without an explicit convention (e.g., `${VAR}` placeholders, a documented "this file is templated" note), it's ambiguous to future editors whether literal secrets belong here, increasing the risk that a real production key eventually gets committed following this file as a template.
+**Suggested fix:** Adopt and document a clear convention (e.g., all secret fields use `${ENV_VAR}` syntax or a `valueFrom:` secretRef pattern) so it's unambiguous that literal values are never acceptable in this file, especially for `production`.
+
+No other issues (e.g., insecure protocol, overly permissive settings, injection vectors) were found in the remaining fields (`name`, `port`, `region`) — these are non-sensitive metadata.

@@ -1,0 +1,37 @@
+1. **Refactoring**: Extract the secret-bearing fields (`Database.Password`, `ApiKey`, and arguably `Database.Username`) out of this config file entirely and load them from environment variables or a secrets manager at startup, leaving only a reference/placeholder in the JSON.
+
+2. **Why it's an improvement**: Plaintext credentials (or credential placeholders sitting in a config file meant to hold real values) invite accidental commits to source control, get copied into logs/backups, and can't be rotated or scoped per-environment without editing and redeploying the file. Separating config (non-secret, safe to version) from secrets (injected at runtime, access-controlled) is a standard security and operability improvement — it also lets the same file structure be reused safely across dev/staging/production.
+
+3. **Before/after**:
+
+Before:
+```json
+{
+  "Database": {
+    "Host": "<URL_1>",
+    "Username": "svc_account",
+    "Password": "<PASSWORD_1>"
+  },
+  "ApiKey": "<API_KEY_1>"
+}
+```
+
+After:
+```json
+{
+  "Database": {
+    "Host": "<URL_1>",
+    "Username": "svc_account"
+  }
+}
+```
+```
+# secrets resolved at runtime, not stored in the file
+Database:Password  -> env var DB_PASSWORD (or vault key "database/password")
+ApiKey              -> env var API_KEY (or vault key "api-key")
+```
+```csharp
+// e.g. in .NET, appsettings.json holds no secret; bind it from env/user-secrets/Key Vault
+var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD");
+var apiKey = Environment.GetEnvironmentVariable("API_KEY");
+```

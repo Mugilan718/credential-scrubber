@@ -1,0 +1,29 @@
+1. **Refactoring**: Move the hard-coded secrets (`encryption_key`, `session_key`) out of the YAML file and replace them with environment-variable references (or a secrets-manager lookup), so the config file holds no literal key material at all.
+
+2. **Why it's an improvement**: Committing real or even fake-looking credentials directly in a config file trains bad habits and risks accidental leakage if the file is ever copied as a template into a real environment — secrets should be injected at runtime from a vault/env, not stored alongside plain settings like `port` or `region`. It also cleanly separates concerns: this file should describe *service configuration*, not hold sensitive material.
+
+3. **Before/after**:
+
+Before:
+```yaml
+service:
+  name: benchmark-service
+  environment: production
+  port: 8080
+  endpoint: https://internal.example.com/api
+  encryption_key: "fake-MFEwEQYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEFAKEKEYDATA"
+  session_key: dummy
+  region: us-east-1
+```
+
+After:
+```yaml
+service:
+  name: benchmark-service
+  environment: production
+  port: 8080
+  endpoint: https://internal.example.com/api
+  encryption_key: "${SERVICE_ENCRYPTION_KEY}"   # injected via env var / secrets manager
+  session_key: "${SERVICE_SESSION_KEY}"
+  region: us-east-1
+```

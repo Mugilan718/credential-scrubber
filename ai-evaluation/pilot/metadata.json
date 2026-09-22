@@ -1,0 +1,117 @@
+{
+  "pilot_id": "pilot_001_java_config_explain_code",
+  "status": "prepared_not_run",
+  "purpose": "Validate the Phase 2 experimental procedure end-to-end on one (file, task) pair before running the full 9-file x 6-task experiment. No model has been called yet.",
+
+  "engine": {
+    "commit": "c291785",
+    "commit_subject": "feat: add deterministic semantic placeholders",
+    "entry_point": "engine.scan_project()",
+    "note": "Engine was not modified to produce this pilot - no new detection rules, no code changes. Both conditions below are direct, unedited engine output/input."
+  },
+
+  "source_file": {
+    "candidate_list_source": "ai-evaluation/dataset/README.md, candidate #1",
+    "dataset_path": "benchmark/dataset/files/java/Config.java",
+    "language": "java",
+    "file_type": ".java",
+    "why_selected": "Smallest suitable Java candidate with real code structure (a class, two methods, both field-adjacent and local-variable secrets) rather than a flat script. Contains three single-line detected values (api_key, password, client_secret categories in ground truth) plus one multiline Java '+'-concatenated value, exercising both the ordinary and multiline placeholder paths in one small (24-line) file. Matches the task's explicit preference for a small Java example with useful surrounding code structure."
+  },
+
+  "original_condition": {
+    "directory": "ai-evaluation/pilot/original/java/Config.java",
+    "produced_by": "Verbatim copy of benchmark/dataset/files/java/Config.java - the literal, unmodified developer source, never passed through the engine. This is the 'original' condition compared against in the AI evaluation (per ai-evaluation/README.md's methodology), distinct from the engine's own MASK-mode output.",
+    "verified_identical_to_dataset_source": true
+  },
+
+  "sanitized_condition": {
+    "directory": "ai-evaluation/pilot/sanitized/java/Config.java",
+    "produced_by": "engine.scan_project(input_dir, output_dir, rules, placeholder_mode=True) run against an isolated single-file copy of the dataset directory. File content copied verbatim from the engine's actual output directory - not hand-authored or hand-edited.",
+    "placeholders_generated": [
+      {"line": 12, "variable": "apiKey", "category_assigned": "GENERIC_SECRET", "token": "<GENERIC_SECRET_1>", "rule": "code_variable_pattern"},
+      {"line": 13, "variable": "dbPassword", "category_assigned": "PASSWORD", "token": "<PASSWORD_1>", "rule": "code_variable_pattern"},
+      {"line": 14, "variable": "clientSecret", "category_assigned": "GENERIC_SECRET", "token": "<GENERIC_SECRET_2>", "rule": "code_variable_pattern"},
+      {"line": 19, "variable": "authToken", "category_assigned": "ACCESS_TOKEN", "token": "<ACCESS_TOKEN_1>", "rule": "multiline_concat_key_name_match", "note": "first fragment of a 3-fragment '+'-concatenation; fragments on lines 20-21 are emptied, not separately tokenized"}
+    ],
+    "category_resolution_note": "apiKey and clientSecret resolve to GENERIC_SECRET rather than the more descriptive API_KEY. This is not a bug introduced for this pilot - it's the code-identifier code path's suspicious-keyword regex backtracking onto the generic 'key' alternative before the more specific 'apikey' one for these particular identifiers (a new, concrete instance of the category-resolution limitation already documented in BENCHMARK.md's Limitations section for the config-key vs value-pattern divergence). Detection, redaction, correlation, and distinctness are all still fully correct - apiKey and clientSecret correctly get two DIFFERENT tokens (GENERIC_SECRET_1 vs GENERIC_SECRET_2) since they are two different real values. Only the category LABEL is less specific than ideal. Flagged here because it's directly relevant to the research question: the AI sees '<GENERIC_SECRET_1>' where a human would say 'this is an API key' - worth watching for in the rubric's 'misunderstood a sanitized value' dimension.",
+    "no_new_detection_rules_added": true,
+    "engine_not_modified": true
+  },
+
+  "verification": {
+    "expected_detected_values_present_in_original": true,
+    "expected_detected_values_matched_ground_truth": "benchmark/dataset/cases.jsonl case ids java_004_api_key, java_005_db_password, java_006_client_secret, java_007/008/009_multiline_frag1/2/3, all expected_detection=true at the documented lines - matched exactly.",
+    "mask_mode_and_placeholder_mode_detection_shape_identical": true,
+    "original_sensitive_values_absent_from_sanitized_output": true,
+    "leak_check_method": "For each placeholder-mode finding, confirmed entry['before'] (the raw fake secret text) does not occur anywhere in the sanitized file text.",
+    "leaks_found": [],
+    "line_count_preserved": true,
+    "original_line_count": 24,
+    "sanitized_line_count": 24,
+    "syntax_check": {
+      "method": "benchmark/syntax_check.py check_syntax('.java', text) - heuristic bracket/quote-balance check (Java has no stdlib parser available to this project, per BENCHMARK.md's documented limitation)",
+      "original_result": "heuristic_valid",
+      "sanitized_result": "heuristic_valid"
+    },
+    "determinism_check": "placeholder_mode=True scan run twice on the same isolated input copy; sanitized output byte-for-byte identical across both runs.",
+    "determinism_result": "identical",
+    "hand_authored_fixture_used": false
+  },
+
+  "evaluation_task": {
+    "prompt_template": "ai-evaluation/prompts/explain_code.md",
+    "task_name": "explain_code",
+    "why_this_prompt": "Explicitly recommended by the task brief for the first pilot - least dependent on whether the file contains an actual bug (unlike identify_bug.md), so it exercises basic comprehension rather than a task the file may not be well-suited for.",
+    "template_variables": {
+      "FILE_EXTENSION": ".java",
+      "SOURCE_CODE": "Filled with original/java/Config.java content verbatim for the original-condition call, and sanitized/java/Config.java content verbatim for the sanitized-condition call. No file path is included in the prompt (per prompts/README.md rule 5) - only the bare content, exactly as the template specifies."
+    }
+  },
+
+  "model_to_be_evaluated": {
+    "status": "NOT YET SELECTED - no model has been called, no response has been generated, no result exists",
+    "settings_to_fix_at_run_time": {
+      "temperature": 0,
+      "max_tokens": "same limit for both conditions",
+      "conversation_history": "none - each (file, task, condition) call is a single independent request",
+      "sampling": "one call per condition for the pilot, no repeated sampling"
+    }
+  },
+
+  "experimental_controls": {
+    "note": "Per ai-evaluation/README.md 'Experimental controls' and prompts/README.md - the two conditions below differ ONLY in source representation.",
+    "held_identical_across_conditions": [
+      "prompt template (ai-evaluation/prompts/explain_code.md, verbatim)",
+      "source file (same file, two representations)",
+      "task (explain the code)",
+      "model and model version (once selected)",
+      "model settings (temperature, max tokens)",
+      "evaluation procedure (same rubric, same rater, blind where practical)"
+    ],
+    "only_variable": "presence vs. absence of sanitization (original/java/Config.java vs sanitized/java/Config.java)",
+    "condition_leakage_check": "Neither file's content nor the prompt template contains the words sanitized/redacted/scrubbed/anonymized/masked/placeholder/fake/synthetic/benchmark (prompts/README.md rule 1) - verified: the source files themselves DO contain a 'fake-'-prefixed value and a 'Synthetic benchmark fixture' header comment, inherited from the dataset fixture design, present identically in both conditions, not introduced by sanitization - documented as a pre-existing pilot-file caveat below."
+  },
+
+  "known_caveats_for_this_pilot_file": [
+    "The source file's own header comment ('Synthetic benchmark fixture - every value below is fake...') and the literal 'fake-' prefix on each secret value are present in BOTH conditions (original and sanitized) since they predate this pilot and are part of the benchmark dataset's own synthetic-value labeling convention, not sanitization output. They are not a condition leak between original vs. sanitized (both conditions carry the same text), but they do mean this specific file is not representative of how a real, unlabeled codebase would read to a model - a genuine developer file would not announce 'this is fake' in a comment. Worth choosing a less self-describing file, or noting this caveat when interpreting results, for the full 9-file experiment.",
+    "See sanitized_condition.category_resolution_note above for the GENERIC_SECRET-vs-API_KEY category-label imprecision observed on this specific file."
+  ],
+
+  "rubric_dimensions": {
+    "source": "ai-evaluation/rubric/rubric.md",
+    "dimensions": [
+      "1. Correctness (1-5)",
+      "2. Completeness (1-5)",
+      "3. Consistency (1-5, internal)",
+      "4. Usefulness (1-5)",
+      "5. Misunderstood a sanitized value? (1-5 or N/A, sanitized condition only)",
+      "6. Relationships between values preserved? (1-5 or N/A - relevant here: apiKey/dbPassword/clientSecret are three distinct values, and the multiline authToken is a fourth, all of which must remain distinguishable in the sanitized response)"
+    ],
+    "failure_mode_checklist": "ai-evaluation/rubric/rubric.md 'Failure-mode checklist' section, unchanged, applies as-is"
+  },
+
+  "results": {
+    "status": "none - no model has been called, no scores exist, no results.csv row has been created",
+    "note": "Per the task brief: do not invent model results, do not run an LLM judge, do not assign scores automatically. ai-evaluation/results/ remains exactly as committed (README.md and an empty results_template.csv) - this pilot preparation does not add anything there."
+  }
+}

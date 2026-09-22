@@ -1,0 +1,7 @@
+I reviewed this file for functional bugs.
+
+I do not find a functional bug in this code — it compiles and runs correctly: all variables are declared, used, and printed as expected, with no incorrect conditions, off-by-one errors, or resource/type-handling issues.
+
+Code-quality/style concerns (not bugs):
+- Hardcoded-looking secret-shaped string literals (`apiKey`, `accessToken`) are embedded directly in source, which is a poor pattern in real code even though the comment clarifies these are synthetic/fake values for a benchmark fixture.
+- The variables are only used via a single `fmt.Println` call with no real program logic; if this is meant to demonstrate something beyond variable declaration, the example is otherwise minimal/trivial.

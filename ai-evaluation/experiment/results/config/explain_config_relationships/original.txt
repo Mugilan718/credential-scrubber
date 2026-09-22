@@ -1,0 +1,9 @@
+- **Database connection**: `Database.Host`, `Database.Username`, `Database.Password` — these clearly form one unit, the credentials and endpoint needed to connect to a specific database instance.
+
+- **App identity / runtime**: `AppName`, `Environment`, `Port` — these describe what the running service is and where it listens; they're the top-level identity/deployment context for the app rather than any single subsystem.
+
+- **Logging**: `Logging.Level` — configures verbosity of the app's logging; independent of the other groups (doesn't depend on DB, API, or customer settings).
+
+- **ApiKey**: stands alone — likely a secret used for outbound calls to a third-party API, but there's no accompanying endpoint/URL or service name in this file to group it with, so it can't be tied to a specific integration.
+
+- **CustomerId**: stands alone — looks like a tenant/customer identifier (e.g., for multi-tenant deployments or licensing), unrelated in purpose to logging, database, or the API key. Could conceivably pair with ApiKey if both belong to the same external service call, but nothing in the file confirms that relationship.

@@ -1,0 +1,8 @@
+1. This file declares a handful of constant values — some plain config-style constants and some fake secret-like strings — with no logic, functions, or exports; it's a synthetic fixture for testing something like a credential scanner, not real application code.
+
+2. The first block (`normalName`, `retries`, `region`) defines ordinary, benign configuration constants — a display string, a numeric retry count, and an AWS-style region identifier — representing "normal" data that a scanner should *not* flag. The second block (`authToken`, `secretKey`, `bearerHeader`) defines strings shaped to look like credentials (an API token, a secret key, and an `Authorization: Bearer` header value), each explicitly prefixed with `fake-` or otherwise marked as fabricated per the file's leading comment; these exist to verify that a secret-detection tool correctly identifies credential-like patterns even when clearly labeled as fake. There's no runtime behavior, imports, or exports — the whole file is just declarations sitting at module scope.
+
+3. A few things worth asking the original author:
+   - Why does `secretKey` have an explicit `: string` type annotation while the other four constants (including the similarly-shaped `authToken`) don't? The inconsistency looks arbitrary and might matter if the benchmark is testing whether type annotations affect detection.
+   - Is this file meant to be imported/consumed by a test harness, or is it purely a static fixture that a scanner runs against directly? There's no export statement, so nothing here is actually reachable from other modules as-is.
+   - Is the specific mix (3 benign + 3 secret-like constants) meaningful for the benchmark's scoring (e.g., testing false-positive/false-negative rates), or arbitrary filler?

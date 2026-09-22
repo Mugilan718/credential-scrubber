@@ -1,0 +1,24 @@
+## Security Review — `Config.cs`
+
+**Finding 1**
+- **Severity:** High
+- **Location:** Lines with `sessionToken` and `clientSecret` declarations (`string sessionToken = "fake-P9xN3vLk7QsWz1RtYd5Fj8Hm";` and the `clientSecret` concatenation)
+- **Description:** Secret-like values (a session token and a client secret) are hardcoded directly as string literals in source code.
+- **Why it matters:** Hardcoded credentials committed to source control are visible to anyone with repo access (including in history, even if later removed), get picked up by CI logs/build artifacts, and cannot be rotated without a code change and redeploy. This is one of the most common causes of credential leakage in real incidents. (Note: the values here are explicitly marked as fake/synthetic for this benchmark, but the pattern itself — a secret assigned as a literal — is the flagged issue regardless of the actual value.)
+- **Suggested fix:** Load secrets from a secure source at runtime — environment variables, a secrets manager (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault), or `IConfiguration` backed by user-secrets/protected config — never as literals in code. Add a pre-commit/CI secret-scanning check to catch this pattern going forward.
+
+**Finding 2**
+- **Severity:** Medium
+- **Location:** `Console.WriteLine(clientSecret + sessionToken);`
+- **Description:** The secret values are concatenated and printed to standard output.
+- **Why it matters:** Console output frequently ends up captured in log files, terminal history, CI job logs, or monitoring pipelines, all of which are typically less access-controlled than the secret store itself. Printing secrets this way turns a single leak point into many downstream ones.
+- **Suggested fix:** Never log or print secret material. If confirmation that a value was loaded is needed for debugging, log a masked/redacted form (e.g., last 4 characters) or simply log a boolean "secret loaded" indicator, and remove this statement in production code paths.
+
+**Finding 3 (minor/informational)**
+- **Severity:** Low
+- **Location:** `clientSecret` built via `"fake-5tGh8Jk1" + "Qw3Er6Ty" + "Ui9Op2As"`
+- **Description:** The secret is split across multiple concatenated string literals rather than a single literal.
+- **Why it matters:** While functionally identical to a single string, splitting secret literals across concatenated fragments is a known technique (intentional or not) for evading naive regex-based secret scanners that match contiguous high-entropy strings. Even if unintentional here, it has the side effect of weakening automated detection.
+- **Suggested fix:** Beyond the primary fix (don't hardcode secrets at all), ensure any secret-scanning tooling used in CI performs constant-folding/normalization or entropy analysis on concatenated literals so this pattern doesn't slip past review.
+
+No other issues (e.g., injection, unsafe deserialization, insecure crypto, path traversal) were found — the file's only functionality is variable assignment and a console print.

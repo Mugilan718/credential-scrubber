@@ -1,11 +1,30 @@
-# Results — schema and process
+# Results — schema and process (superseded scaffold)
 
-**No results exist yet.** `results_template.csv` contains only a header
-row. This document describes the schema and the recording process for
-when the first experiment is actually run - not part of this preparation
-phase.
+**This directory's own `results_template.csv` is still just an empty
+header row - it was never filled in.** That is expected, not stale: this
+directory describes the schema and recording process this project
+designed *before* the first real experiment ran. The actual experiment
+was executed under a full, frozen 9-file x 6-task x 2-condition design
+instead of the single small run this scaffold anticipated, and its real
+results live at `../experiment/results/` (raw responses, per-file
+`batch_record.md` and `human_evaluation.md`) and
+`../experiment/analysis/evaluation_dataset.csv` (the same 96 scored
+responses in structured, one-row-per-response form) - see
+`../experiment/README.md` for the completed experiment's status and
+`../README.md` for the overall phase summary.
 
-## Files this directory will hold once an experiment runs
+**Do not read this directory as containing active experiment results.**
+It is kept for the column-schema and blind-rating-process documentation
+below, which the actual experiment's scoring followed in substance (see
+`../experiment/results/*/human_evaluation.md`, which record the same six
+rubric dimensions plus failure-mode tags described here), even though
+the real data was ultimately organized as one `human_evaluation.md` per
+candidate file rather than as a single filled-in `results_template.csv`.
+
+## Original plan for this directory (not what actually happened)
+
+This is the layout this scaffold originally anticipated - a `runs/<run_id>/`
+folder per experiment run, filled in here:
 
 ```
 results/
@@ -15,6 +34,12 @@ results/
 │   ├── raw_responses/          One .txt file per (file, task, condition) call.
 │   └── results.csv             That run's filled-in copy of the template.
 ```
+
+**This `runs/` layout was never created.** When the real experiment was
+built out, it used the frozen design under `../experiment/` instead
+(`experiment/results/<candidate>/<task>/{original,sanitized}.txt` plus a
+`human_evaluation.md` per candidate file, rather than a single
+`results.csv` per run) - see the note at the top of this document.
 
 Raw model responses are **not** inlined into the CSV. They're long,
 multi-line, and can contain characters that make CSV fragile; each
@@ -64,9 +89,11 @@ fine; it does not need to be hidden from the rater as a fact. What must
 be avoided is the rater going in already primed to expect one condition
 to score lower.
 
-## What this phase commits
+## What this directory actually commits
 
-Only `README.md` and `results_template.csv` (header row only). No
-`runs/` directory, no raw responses, no filled-in rows - those are all
-created when an experiment is actually executed, which is explicitly not
-part of this preparation phase.
+Only `README.md` and `results_template.csv` (header row only, still
+empty). No `runs/` directory, no raw responses, no filled-in rows were
+ever added here - the real experiment's raw responses and scored results
+were committed under `../experiment/results/` and
+`../experiment/analysis/` instead (see the note at the top of this
+document).

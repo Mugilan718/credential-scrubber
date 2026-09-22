@@ -1,0 +1,58 @@
+## Assessment
+
+This file is almost entirely static configuration (`timeout`, `port`, `environment`, `country`, `database`, `api_key`, `API_SECRET`) — module-level literal assignments with no branching, computation, or logic to exercise. Asserting that a constant equals the literal it was assigned would not verify any behavior; it would just restate the source file. I did not write tests for these.
+
+There are exactly two pieces of independently testable **logic**:
+
+1. `get_note()` — a function with a return value, trivially testable.
+2. `DB_PASSWORD = os.getenv("DB_PASSWORD", "fake-PlainOldPassword1")` — this line does have real behavior (environment-variable override with a fallback default), even though it runs at import time rather than inside a function. It's worth testing that the fallback/override logic works correctly.
+
+Framework: **pytest** (with `monkeypatch` for environment variable control and `importlib.reload` since the assignment happens at module import time, not inside a function).
+
+Assuming the source file is saved as `config_fixture.py`:
+
+```python
+import importlib
+import sys
+
+import pytest
+
+import config_fixture
+
+
+def test_get_note_returns_expected_string():
+    """Verifies get_note() returns the exact static string it's defined to return."""
+    assert config_fixture.get_note() == "not-a-secret-just-a-string"
+
+
+def test_get_note_return_type_is_str():
+    """Verifies get_note() always returns a str, guarding against accidental
+    type changes (e.g. returning None or bytes) in future edits."""
+    assert isinstance(config_fixture.get_note(), str)
+
+
+def test_db_password_uses_default_when_env_var_unset(monkeypatch):
+    """Verifies that when the DB_PASSWORD environment variable is not set,
+    the module falls back to its hardcoded default value."""
+    monkeypatch.delenv("DB_PASSWORD", raising=False)
+    reloaded = importlib.reload(config_fixture)
+    assert reloaded.DB_PASSWORD == "fake-PlainOldPassword1"
+
+
+def test_db_password_uses_env_var_when_set(monkeypatch):
+    """Verifies that when the DB_PASSWORD environment variable is set,
+    its value overrides the hardcoded default."""
+    monkeypatch.setenv("DB_PASSWORD", "fake-OverriddenPassword2")
+    reloaded = importlib.reload(config_fixture)
+    assert reloaded.DB_PASSWORD == "fake-OverriddenPassword2"
+
+    # restore module to a clean state for any subsequent tests/imports
+    monkeypatch.delenv("DB_PASSWORD", raising=False)
+    importlib.reload(config_fixture)
+```
+
+Notes on the approach:
+- `importlib.reload` is required because `DB_PASSWORD` is computed once at import time via `os.getenv(...)`; simply importing the module before setting the env var wouldn't re-trigger that line.
+- I did not add tests asserting `api_key`, `API_SECRET`, `timeout`, `port`, `environment`, `country`, or `database` equal their literals — these are pure static data with no logic path, and such a test would only break in sync with the source (i.e., it can never fail independently of a deliberate edit), which is not meaningful verification.
+
+Files referenced: none in the repo — this was a fixture snippet supplied inline in the prompt, treated here as a hypothetical `config_fixture.py`.

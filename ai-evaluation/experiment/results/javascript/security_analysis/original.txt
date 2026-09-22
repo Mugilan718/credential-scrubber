@@ -1,0 +1,28 @@
+Security Review
+
+**Finding 1**
+- Severity: High
+- Location: `const apiToken = "fake-Qw8Er2Ty5Ui9Op3As6Df1Gh4";`
+- Description: A secret/API token is hardcoded directly in source code as a plaintext string literal.
+- Why it matters: Hardcoded credentials committed to a repository are exposed to anyone with source access (including version control history, forks, CI logs, and build artifacts). Even if rotated later, the old value remains permanently recoverable from git history. If this were a real token, it could allow unauthorized API access.
+- Suggested fix: Load the token from environment variables or a secrets manager (e.g., `process.env.API_TOKEN`), never commit real values, and add a `.env`/secrets file to `.gitignore`. Rotate any credential that was ever committed, even temporarily.
+
+**Finding 2**
+- Severity: High
+- Location: `const webhookSecret = "fake-Bp3mXtWh9kRq5cVf2sLd7jHo4uGa6z";`
+- Description: A webhook signing secret is hardcoded directly in source code.
+- Why it matters: Webhook secrets are typically used to verify request signatures (e.g., HMAC validation of incoming payloads). If exposed, an attacker can forge valid webhook payloads, potentially triggering unauthorized actions in downstream systems.
+- Suggested fix: Same as above — externalize to environment variables/secrets manager, exclude from source control, and rotate if it was ever exposed.
+
+**Finding 3**
+- Severity: Medium
+- Location: `buildSecret()` function — `secretKey` built via string concatenation across multiple lines.
+- Description: A secret is constructed by concatenating string fragments rather than being defined as a single literal.
+- Why it matters: This pattern is a common technique to evade naive secret-scanning tools (regex/entropy scanners that look for one contiguous high-entropy string). Even if not intentionally obfuscated here, it has the same net effect: the resulting secret is still hardcoded and exposed in source, while being harder for automated detection tooling to flag. This can create a false sense of security if a scanner passes cleanly.
+- Suggested fix: Avoid constructing secrets programmatically from literals in source. Load the full value from a secure external source (env var, vault, secret manager) as a single retrieval, and ensure any secret-scanning tooling used also checks for concatenated/split literal patterns.
+
+**General observations (not separate findings)**
+- `username = "admin"` is a hardcoded default username. Not a secret by itself, but combined with hardcoded credentials elsewhere, hardcoding default admin usernames can facilitate credential-stuffing/brute-force if paired with a weak or also-hardcoded password — worth flagging if a password/credential pair exists elsewhere in the real codebase.
+- No secrets are logged, transmitted, or used insecurely (e.g., no `eval`, no insecure HTTP calls, no logging of secrets) in the shown snippet — the sole issue is the hardcoding itself.
+
+**Summary**: All three findings stem from the same root cause — hardcoded credentials in source code — which is the primary and most severe class of issue in this snippet. No other vulnerability classes (injection, insecure deserialization, unsafe eval, path traversal, etc.) are present in the given code.

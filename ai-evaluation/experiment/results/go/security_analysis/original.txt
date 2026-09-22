@@ -1,0 +1,23 @@
+Security review of the provided Go file (treating it as a PR diff):
+
+## Findings
+
+**1. Severity: High**
+- **Location:** Lines 9–10 (`apiKey := "fake-Qw8Er2Ty5Ui9Op3As6Df1Gh4"`, `accessToken := "fake-Tk9mXtGo4bQp7wRk2cVf5sLd8jHo3u"`)
+- **Description:** Credential-shaped string literals are hardcoded directly in source code.
+- **Why it matters:** Secrets committed to source control persist in git history even if later removed, are visible to anyone with repo access (including CI logs, forks, and code-search indexing), and can't be rotated without a code change/redeploy. This is true regardless of whether the specific values in this fixture are synthetic — the pattern being reviewed is what matters, since real code following this pattern would leak live credentials. Flagging this is the correct call in any PR review, as the same code shape with real values is a critical exposure.
+- **Suggested fix:** Load secrets from environment variables, a secrets manager (Vault, AWS Secrets Manager, etc.), or injected config at runtime — never as literals in code. E.g. `apiKey := os.Getenv("API_KEY")`, with startup validation that it's non-empty.
+
+**2. Severity: Medium**
+- **Location:** Line 12 (`fmt.Println(normalValue, timeout, dbName, apiKey, accessToken)`)
+- **Description:** The API key and access token are printed to stdout in plaintext.
+- **Why it matters:** Logging secrets is a common exfiltration vector — stdout is frequently captured by log aggregators, CI output, terminal scrollback, or crash reports, any of which can persist and be broadly readable well beyond the process's intended audience.
+- **Suggested fix:** Never log secret values. If debugging output is needed, redact/mask them (e.g., print only a prefix/suffix or a fixed placeholder like `"***"`), and ensure logging frameworks are configured to scrub known secret field names.
+
+**3. Severity: Low**
+- **Location:** Whole file (`main.go` structure)
+- **Description:** No `.gitignore`/secret-scanning safeguard is evident, and there's no indication these values are meant to be examples vs. real config (aside from the source comment, which isn't a technical control).
+- **Why it matters:** Relying on a code comment to convey "this is fake" doesn't prevent a developer from copy-pasting this pattern with real values later, and doesn't stop automated secret scanners from flagging it (which is actually the desired safety net) or missing real instances due to alert fatigue from expected "fake" hits.
+- **Suggested fix:** If this is intentionally a test fixture, keep it isolated in a clearly-named test/fixture directory excluded from production build paths, and prefer obviously non-credential-shaped placeholder strings (e.g., `"TEST_PLACEHOLDER_DO_NOT_USE"`) over realistic-looking key formats, to avoid false confidence and to keep secret-scanner tests meaningful.
+
+No other issues (injection, unsafe concurrency, error handling, etc.) apply — the file has no I/O, network calls, or user input beyond the hardcoded values above.

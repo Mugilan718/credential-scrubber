@@ -1,0 +1,16 @@
+# Dependencies for reproducing the AI-evaluation research analysis only
+# (ai-evaluation/experiment/analysis/run_inferential_analysis.py and
+# generate_figures.py). NOT required to run the Credential Scrubber
+# application itself - see the repository root's requirements.txt /
+# requirements-dev.txt for that.
+#
+# Install with:
+#   pip install -r ai-evaluation/requirements-research.txt
+#
+# Versions below are floors, matching the style of the root
+# requirements.txt (">="), pinned to the versions actually used to
+# produce the committed analysis/figures in this repository.
+
+scipy>=1.18.1
+numpy>=2.5.3
+matplotlib>=3.11.2

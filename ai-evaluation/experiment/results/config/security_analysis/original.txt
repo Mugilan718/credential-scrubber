@@ -1,0 +1,41 @@
+## Security Review: `BenchmarkDemo` Configuration File
+
+### Finding 1 — Hardcoded database password in plaintext
+- **Severity:** High
+- **Location:** `Database.Password` (line: `"Password": "fake-hunter2"`)
+- **Description:** The database password is stored as a plaintext literal directly in the configuration file, alongside the username and host.
+- **Why it matters:** Anyone with read access to this file (source control history, CI logs, backups, deployment artifacts, or a misconfigured static file server) gets full credentials to the production database. Config files are frequently committed to git, copied into container images, or attached to tickets/support bundles, all of which leak secrets far beyond their intended audience. Combined with the host and username also being present, this is a complete, ready-to-use credential set.
+- **Suggested fix:** Remove the password from the file entirely. Load it at runtime from a secrets manager (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault) or environment variable injected by the deployment platform. If this file must remain for local/dev templating, replace the value with a placeholder (e.g., `"${DB_PASSWORD}"`) and document that it's resolved externally. Rotate this credential immediately since it has been exposed in this review.
+
+### Finding 2 — Hardcoded API key in plaintext
+- **Severity:** High
+- **Location:** `ApiKey` (line: `"ApiKey": "fake-Rk8mNpQ2xWvT5hLj9cBs3fYg7uAe1"`)
+- **Description:** A top-level API key is embedded directly in the config with no indirection or reference to a secret store.
+- **Why it matters:** Same exposure vector as the DB password — this key likely grants access to an external service or internal API. If this config is bundled into a repo, shared in a PR diff, or included in a deployed artifact accessible to more people/systems than intended, the key can be extracted and used to impersonate the application (e.g., for billing abuse, data exfiltration, or lateral movement).
+- **Suggested fix:** Externalize via environment variable or secrets manager, same as the database password. Ensure the key has least-privilege scope on the provider side, and add this file pattern to `.gitignore`/secret-scanning rules if it isn't already. Rotate the key since it has been exposed.
+
+### Finding 3 — Full credential set stored together (host + username + password)
+- **Severity:** Medium
+- **Location:** `Database` block
+- **Description:** Host, username, and password are all co-located in one object, forming a complete, directly-usable connection string for the production database.
+- **Why it matters:** Even if individual fields were "less sensitive" on their own, bundling them together maximizes blast radius from a single file leak — no additional reconnaissance is needed to connect to the database.
+- **Suggested fix:** Same remediation as Finding 1 — pull credentials from a secrets manager at runtime, and consider using short-lived/managed identities (e.g., IAM database auth) instead of static passwords where the platform supports it.
+
+### Finding 4 — No indication of secret rotation or expiry
+- **Severity:** Low
+- **Location:** `Database.Password`, `ApiKey` (whole file — no metadata)
+- **Description:** There's no versioning, rotation timestamp, or TTL associated with either secret, suggesting these are long-lived static credentials.
+- **Why it matters:** Static, never-rotated secrets increase the window of exposure if leaked and make incident response harder (you can't tell how old a compromised credential is or when it was last validated).
+- **Suggested fix:** Once moved to a secrets manager, enable automatic rotation policies and short-lived tokens where the backing service supports them.
+
+### Finding 5 — `Logging.Level` set to `info` in production
+- **Severity:** Low
+- **Location:** `Logging.Level` (`"Level": "info"`)
+- **Description:** Not a vulnerability by itself, but `info`-level logging in production increases risk that request/response payloads, connection strings, or tokens get written to logs if the application isn't careful about redaction.
+- **Why it matters:** Logs are often shipped to less-tightly-controlled systems (log aggregators, third-party SaaS) than the app itself; verbose logging combined with the hardcoded secrets above raises the chance those secrets end up duplicated in log storage.
+- **Suggested fix:** Use `warn`/`error` for production baseline, or if `info` is required for observability, ensure the application has explicit log-scrubbing/redaction for credentials and PII before this level is enabled in production.
+
+### Non-issues (for completeness)
+- `AppName`, `Environment`, `Port`, `CustomerId` are not sensitive and require no change.
+
+**Summary:** 2 High, 1 Medium, 2 Low. The core problem is that this file mixes non-sensitive configuration with live production secrets (DB password, API key) in plaintext. The primary fix across all high/medium findings is the same: remove secrets from this file and source them from a secrets manager or environment injection at deploy time, then rotate both the exposed password and API key.

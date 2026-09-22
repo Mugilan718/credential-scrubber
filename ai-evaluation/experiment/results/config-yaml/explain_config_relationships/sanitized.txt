@@ -1,0 +1,8 @@
+Group 1 — Service identity: `name`, `environment` — describe what the service is called and which deployment stage it runs in; purely descriptive/labeling metadata, not tied to any specific connection.
+
+Group 2 — Network binding: `port`, `endpoint` — together they define where the service listens/is reached (a port without a host/URL, or vice versa, is incomplete on its own), so these two form the connection-address pair.
+
+Group 3 — Secrets/credentials: `encryption_key`, `session_key` — both are cryptographic material used to secure data/sessions; they're grouped by function (security material) even though they likely serve different purposes (data encryption vs. session signing), so they're a "credentials" cluster rather than a single value.
+
+Independent:
+- `region` — an infrastructure/deployment-topology detail (likely cloud region for hosting/routing) that isn't inherently tied to the identity, network, or secret groups above; it could vary independently of any of them.

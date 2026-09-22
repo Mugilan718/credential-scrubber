@@ -1,0 +1,118 @@
+## Framework: JUnit 5
+
+## Analysis of testable logic
+
+`Config` is almost entirely static/fake configuration data:
+
+- `normalField`, `timeout`, `port`, `environment` — private fields with **no getters/setters**. They aren't reachable from outside the class without reflection, and reflecting into private fields just to assert hardcoded literal values wouldn't verify any real behavior — it would just re-assert the source code. **Not meaningfully testable.**
+- `connect()` — `void`, does nothing but concatenate three hardcoded strings and `System.out.println` them. There's no return value, no state mutation, no branching logic. The only thing worth asserting is that it doesn't throw and that its (weak, implementation-detail) console output matches what's expected.
+- `buildAuthToken()` — this is the one method with actual logic: string literal concatenation, and it returns a value. This is genuinely worth testing (deterministic output, non-null/non-empty, correct concatenation).
+
+So there is **one** method with real independently-testable logic (`buildAuthToken`), and one (`connect`) that only offers a trivial "doesn't throw / prints something" test. I'm not inventing tests around the private fields since there's no accessor surface to verify.
+
+## Tests
+
+```java
+package com.example.benchmark;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+class ConfigTest {
+
+    private Config config;
+
+    @BeforeEach
+    void setUp() {
+        config = new Config();
+    }
+
+    // --- buildAuthToken() ---------------------------------------------
+
+    /**
+     * Verifies that buildAuthToken() concatenates its literal parts in the
+     * correct order and produces the exact expected string.
+     */
+    @Test
+    void buildAuthToken_returnsExpectedConcatenatedValue() {
+        String expected = "fakeAB12CD34secretEF56GH78token90";
+        assertEquals(expected, config.buildAuthToken());
+    }
+
+    /**
+     * Verifies that buildAuthToken() never returns null or an empty string,
+     * i.e. it always produces a usable token.
+     */
+    @Test
+    void buildAuthToken_isNeverNullOrEmpty() {
+        String token = config.buildAuthToken();
+        assertNotNull(token);
+        assertFalse(token.isEmpty());
+    }
+
+    /**
+     * Verifies that buildAuthToken() is deterministic/pure - calling it
+     * multiple times on the same instance yields the same result, since it
+     * has no dependency on mutable state.
+     */
+    @Test
+    void buildAuthToken_isDeterministicAcrossCalls() {
+        String first = config.buildAuthToken();
+        String second = config.buildAuthToken();
+        assertEquals(first, second);
+    }
+
+    // --- connect() -------------------------------------------------------
+    // connect() has no return value and no externally observable state
+    // change other than a System.out.println call, so these tests are
+    // necessarily weak / implementation-detail-coupled. They're included
+    // only to confirm the method executes without error and to pin down
+    // its one observable side effect.
+
+    private final PrintStream originalOut = System.out;
+    private ByteArrayOutputStream capturedOut;
+
+    @BeforeEach
+    void captureStdOut() {
+        capturedOut = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(capturedOut));
+    }
+
+    @AfterEach
+    void restoreStdOut() {
+        System.setOut(originalOut);
+    }
+
+    /**
+     * Verifies that connect() runs without throwing any exception.
+     */
+    @Test
+    void connect_doesNotThrow() {
+        assertDoesNotThrow(() -> config.connect());
+    }
+
+    /**
+     * Verifies that connect()'s only observable effect - the concatenated
+     * string written to stdout - matches the expected concatenation of the
+     * three literals.
+     */
+    @Test
+    void connect_printsConcatenatedCredentialsToStdOut() {
+        config.connect();
+        String expected = "fake-Rk8mNpQ2xWvT5hLj9cBs3fYg7uAe1"
+                + "fake-Sup3rSecretPass!2024"
+                + "fake-zP9x2Qn8Lw3kFh7Tj1VbYc5RmA0uEsGd";
+        assertEquals(expected + System.lineSeparator(), capturedOut.toString());
+    }
+}
+```
+
+### Notes on what I deliberately did *not* test
+- No tests target `normalField`, `timeout`, `port`, or `environment` directly — there's no public accessor, so any test would require reflection and would only be re-verifying a literal already present in the source, not real behavior.
+- The `connect_printsConcatenatedCredentialsToStdOut` test is included for completeness but is inherently brittle (coupled to `println`/line-separator and to the literal secret values); if this file were real production code, I'd flag `connect()` as poorly designed for testability (no return value, side-effecting via stdout) rather than double down on stdout-capture tests.

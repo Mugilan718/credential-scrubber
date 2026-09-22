@@ -1,0 +1,16 @@
+1. **Summary:** This is a small `.properties` configuration file defining basic, non-sensitive application settings (server timeout/port, environment, and a handful of arbitrary string values) explicitly built as a test fixture to check that a credential-scanning tool doesn't produce false positives.
+
+2. **Section breakdown:**
+
+   - **Header comments (lines 1-4):** These clarify the file's actual purpose — it's not a real app config at all, but a synthetic fixture for benchmarking a secret/credential scrubber. It flags that several keys/values deliberately contain words like "password," "token," "key," "user," or "admin," but only incidentally (e.g., as substrings or clearly harmless values), and the test expects none of them to be flagged as secrets.
+
+   - **Core app settings (`timeout`, `port`, `environment`, `country`):** Ordinary configuration values — a numeric timeout, a network port, and two descriptive strings. These are included as generic "normal-looking config" noise to sit alongside the trickier entries.
+
+   - **Decoy sensitive-looking keys (`username`, `database`):** `username = "admin"` and `database = "testdb"` are the classic pattern a naive regex-based scanner might misfire on (since "username" often precedes real secrets in leaked-credential patterns), but here the values are innocuous placeholders, not real credentials.
+
+   - **Word-boundary trap entries (`ghost_writer`, `concert_hall`, `authored_by`, `tokenizer_version`):** These keys are crafted so that a crude substring match would catch "writer" inside a sensitive-sounding context, "hall" isn't a match but the point is more that "token" and "key" appear as embedded substrings within unrelated words (`tokenizer` contains "token," but "concert_hall" doesn't actually contain "key" — worth double-checking, see below). The intent is clearly to test that the scrubber uses proper tokenization/word-boundary logic rather than naive substring matching on words like "key," "token," etc.
+
+3. **Things I'd want to clarify with the author:**
+   - The comment claims values contain "key" as an unrelated word, but scanning the actual keys/values, I don't see "key" appearing anywhere (no `key` substring in `ghost_writer`, `concert_hall`, etc.). This seems like either a leftover/inaccurate comment from a template, or an entry that was meant to be included but was dropped — worth confirming whether a "key"-containing decoy line is missing.
+   - It's unclear whether this file is meant to be paired with a corresponding "expected results" file (e.g., asserting zero findings) as part of an automated test suite, or if it's just a standalone manual fixture — the file itself gives no indication of how it's consumed by the benchmark harness.
+   - `ghost_writer` and `concert_hall` are oddly specific/thematic key names with no explanation of what they're modeling (they don't obviously map to any common credential-pattern trap I can identify beyond "writer" resembling a sensitive term loosely); confirming the specific false-positive pattern each line is designed to test would help future maintainers understand the intent rather than guess.

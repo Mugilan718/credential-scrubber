@@ -1,0 +1,22 @@
+1. **Refactoring:** Load `api_key` and `API_SECRET` from environment variables via `os.getenv(...)`, the same way `DB_PASSWORD` already is, instead of hardcoding them as literal strings in the source.
+
+2. **Why it's an improvement:** Right now the file is inconsistent — one secret is externalized while two others are embedded directly in code (and `API_SECRET` is even awkwardly split across concatenated string literals, presumably to dodge secret-scanners). Hardcoded credentials in source get committed to version control, show up in diffs/history, and can't be rotated or vary per environment without a code change. Routing all three through `os.getenv` with sane fallbacks centralizes secret handling, makes the security posture uniform, and eliminates the string-splitting hack.
+
+3. **Before/after:**
+
+```python
+# Before
+api_key = "fake-X7bQ9wM2eR4tY6uI8oP0aS3d"
+
+API_SECRET = (
+    "fake-aZ3xK9mQ"
+    "7LpN2vRt"
+    "Bq8Ws4Yd"
+)
+```
+
+```python
+# After
+api_key = os.getenv("API_KEY", "fake-X7bQ9wM2eR4tY6uI8oP0aS3d")
+API_SECRET = os.getenv("API_SECRET", "fake-aZ3xK9mQ7LpN2vRtBq8Ws4Yd")
+```

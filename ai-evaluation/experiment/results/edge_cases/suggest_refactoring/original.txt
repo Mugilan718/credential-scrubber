@@ -1,0 +1,35 @@
+1. **Refactoring**: Group the related key/value pairs into namespaced sections (e.g. `server.*`, `app.*`) instead of a flat, unordered list of unrelated keys.
+
+2. **Why it's an improvement**: A flat list mixes infrastructure settings (`timeout`, `port`), app metadata (`environment`, `country`, `database`), and unrelated descriptive strings (`ghost_writer`, `concert_hall`, `authored_by`, `tokenizer_version`) with no visual or logical grouping, making it hard to tell which properties are related or where to add new ones. Prefixing keys by concern makes the file self-documenting and easier to parse/extend without touching unrelated settings.
+
+3. **Before/after**:
+
+Before:
+```properties
+timeout = 5000
+port = 8080
+environment = "production"
+country = "India"
+username = "admin"
+database = "testdb"
+ghost_writer = "downtown branch"
+concert_hall = "main stage"
+authored_by = "benchmark generator"
+tokenizer_version = "v2"
+```
+
+After:
+```properties
+server.port = 8080
+server.timeout = 5000
+
+app.environment = "production"
+app.country = "India"
+app.username = "admin"
+app.database = "testdb"
+
+metadata.ghost_writer = "downtown branch"
+metadata.concert_hall = "main stage"
+metadata.authored_by = "benchmark generator"
+metadata.tokenizer_version = "v2"
+```

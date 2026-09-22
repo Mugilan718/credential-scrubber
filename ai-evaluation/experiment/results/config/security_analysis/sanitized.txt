@@ -1,0 +1,41 @@
+Security Review — config JSON
+
+Findings
+
+1. Severity: High
+Location: `Database.Password` (line 8)
+Description: A plaintext database password is stored directly in the configuration file/source.
+Why it matters: Any config file committed to source control, logged, backed up, or shared (e.g., in a PR diff, CI artifact, or support ticket) will leak a live credential. Anyone with read access to the repo, deployment pipeline, or file system gains direct database access, and rotation requires a code change/redeploy rather than a scoped secret-store update.
+Suggested fix: Remove the credential from the file entirely. Reference it indirectly (e.g., `"Password": "${DB_PASSWORD}"` or a key name in a secrets manager such as AWS Secrets Manager/Azure Key Vault/HashiCorp Vault) and inject it at runtime via environment variable or secret-store lookup. Rotate the exposed password immediately since it must be treated as compromised.
+
+2. Severity: High
+Location: `ApiKey` (line 10)
+Description: A plaintext API key is stored directly in the configuration file, with no indication of which service it authorizes or what scope it has.
+Why it matters: Same exposure risk as the database password — API keys committed to config are routinely harvested by automated scrapers/bots scanning public and even private repos, and misuse can lead to billing abuse, data exfiltration, or lateral compromise of the third-party service.
+Suggested fix: Move to environment variables or a secrets manager, never checked into source or shipped in a static config file. Use a least-privilege/scoped key if the provider supports it, and rotate the current key.
+
+3. Severity: Medium
+Location: `Database.Host` (line 7)
+Description: The database host/connection endpoint is embedded directly in a config file alongside the credentials for it.
+Why it matters: While a hostname alone is lower risk than credentials, combined with the username/password in the same file it gives an attacker everything needed for a direct connection attempt, and it also reveals internal network/infrastructure topology (useful for reconnaissance) if this file is exposed.
+Suggested fix: Treat environment-specific endpoints as configuration-via-environment (env var, deployment manifest, or secrets manager) rather than hardcoded in a file that may be committed to version control, especially since this is marked `"production"`.
+
+4. Severity: Medium
+Location: `Database.Username` (line 6) combined with Password (line 8)
+Description: Username and password for the same account are stored together in the same file, and the username (`svc_account`) suggests a shared/service account rather than a per-deployment or per-instance identity.
+Why it matters: Co-locating both halves of a credential pair maximizes blast radius if the file leaks — no additional lookup is needed to obtain a working credential pair. Shared service accounts also make it harder to audit or revoke access for a single compromised deployment without affecting others.
+Suggested fix: Store username and password separately (or as a single opaque secret reference), and use per-environment/per-service credentials with least privilege rather than one shared service account.
+
+5. Severity: Low
+Location: Whole document (`"Environment": "production"`)
+Description: The file mixes non-sensitive operational settings (AppName, Port, Logging level) with production secrets in a single flat structure, with no separation between "safe to commit" config and "must be secret" config.
+Why it matters: Flat configs like this encourage accidental commits of the whole file (including secrets) since there's no structural boundary prompting a developer to treat parts of it differently, and no obvious marker (e.g., `.gitignore`, template file with placeholders) preventing this specific instance from being a real, checked-in production file.
+Suggested fix: Split configuration into a non-secret template (`appsettings.json` with placeholders) and a secrets-only source (environment variables, `appsettings.Production.local.json` excluded via `.gitignore`, or a managed secret store), and add the secrets file pattern to `.gitignore`/pre-commit secret scanning.
+
+6. Severity: Low
+Location: `CustomerId` (line 11)
+Description: A customer identifier (`PF001`) is present in a general application config file rather than customer-scoped/tenant-scoped configuration.
+Why it matters: Low sensitivity on its own, but if this file is a template reused across deployments, hardcoding a specific customer ID risks accidental cross-tenant misconfiguration (e.g., deploying customer B's instance with customer A's ID still present), which could cause data routed to/associated with the wrong tenant.
+Suggested fix: Confirm this is intentionally per-deployment configuration (not a shared template) and ensure deployment tooling always overrides it explicitly rather than relying on a checked-in default.
+
+Overall: The two critical issues are the plaintext `Password` and `ApiKey` values — both should be removed from the file and replaced with references to environment variables or a secrets manager, with the underlying credentials rotated since this file's presence implies they may already be exposed.

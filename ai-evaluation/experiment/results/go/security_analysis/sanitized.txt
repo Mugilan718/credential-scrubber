@@ -1,0 +1,22 @@
+Security review of the provided Go file:
+
+**Finding 1**
+- Severity: High
+- Location: Lines 11–12 (`apiKey := "<GENERIC_SECRET_1>"`, `accessToken := "<ACCESS_TOKEN_1>"`)
+- Description: Credential-like values (an API key and an access token) are hardcoded directly in source code as string literals.
+- Why it matters: Hardcoded secrets committed to source control are a classic exposure vector — they persist in git history even if later removed, are visible to anyone with repo access, get copied into forks/CI logs/build artifacts, and can't be rotated without a code change and redeploy. Even though these particular values are placeholders in this synthetic fixture, the pattern shown (assigning a secret to a variable via a literal) is exactly the anti-pattern that leads to real leaked credentials in production code.
+- Suggested fix: Load secrets from a secure source at runtime — environment variables, a secrets manager (Vault, AWS Secrets Manager, GCP Secret Manager, etc.), or an injected config — never as literals in code. Add a pre-commit/CI secret-scanning check (e.g., gitleaks, truffleHog) to catch this class of issue before merge.
+
+**Finding 2**
+- Severity: Medium
+- Location: Line 13 (`fmt.Println(normalValue, timeout, dbName, apiKey, accessToken)`)
+- Description: The secret values (`apiKey`, `accessToken`) are printed to stdout alongside unrelated, non-sensitive values.
+- Why it matters: Printing secrets to stdout/logs is a common way credentials leak into log aggregation systems, CI output, terminal scrollback, or crash reports, where they may be retained far longer and be far more widely accessible than the original source. Bundling secrets into a generic debug print also makes it easy to overlook that sensitive data is being emitted.
+- Suggested fix: Never log or print secret material. If debugging is needed, redact/mask the value (e.g., print only a fixed placeholder or the last 4 characters) and avoid mixing secrets with routine debug output.
+
+**Minor/Informational**
+- Location: Lines 8–10 (`normalValue`, `timeout`, `dbName`)
+- Description: Not a security issue on their own, but `dbName` and `timeout` being interspersed with credential variables and printed together increases the risk that future edits will inadvertently include more sensitive fields in the same log line without notice.
+- Suggested fix: Keep sensitive and non-sensitive data in clearly separated structures/logging paths so it's obvious at a glance when secret material is in scope.
+
+No other issues (e.g., injection, unsafe deserialization, path traversal, unsafe concurrency) apply — the file is too minimal to contain those classes of bugs. The two findings above (hardcoded secrets and printing them) are the only substantive security concerns in this snippet.

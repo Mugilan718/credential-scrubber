@@ -1,0 +1,26 @@
+1. **Refactoring:** Replace `buildSecret()`'s string-concatenation of literal fragments with a single string constant (or, better, load the secret from an environment variable / secrets manager instead of hardcoding it in source at all).
+
+2. **Why it's an improvement:** Splitting a literal across multiple `+`-joined lines adds no value here—there's no line-length or formatting constraint being solved—so it only obscures the value and makes the code harder to read and search (e.g., you can't grep for the full token). More importantly, baking any secret-like value directly into source code is a security anti-pattern regardless of formatting: it gets committed to version control, shows up in build artifacts, and can't be rotated without a code change. The concatenation trick can also read as a deliberate (if weak) attempt to evade credential-scanning tools, which is worth avoiding even when the fixture value is fake.
+
+3. **Before/after:**
+
+```js
+// Before
+function buildSecret() {
+    const secretKey = "fake-aBc123" +
+        "dEf456" +
+        "gHi789";
+    return secretKey;
+}
+```
+
+```js
+// After
+function buildSecret() {
+    const secretKey = process.env.SECRET_KEY;
+    if (!secretKey) {
+        throw new Error("SECRET_KEY environment variable is not set");
+    }
+    return secretKey;
+}
+```

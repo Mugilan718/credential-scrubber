@@ -1,0 +1,37 @@
+1. **Refactoring:** Replace the growing list of loose local variables with a single struct (e.g. `Config`) that groups related fields, and pass/print it as one value instead of five separate ones.
+
+2. **Why it's an improvement:** As more fields get added (which this snippet is clearly trending toward — timeout, dbName, apiKey, accessToken...), a flat list of unrelated local variables becomes hard to pass around, easy to reorder incorrectly, and error-prone when new fields are added but forgotten in downstream calls (e.g. `fmt.Println`). A struct gives the data a name, makes its shape explicit, and lets you add methods (like a `String()` that redacts secrets) instead of manually remembering to include every variable everywhere it's used.
+
+3. **Before/after:**
+
+```go
+// Before
+normalValue := "just some text"
+timeout := 5000
+dbName := "testdb"
+apiKey := "<GENERIC_SECRET_1>"
+accessToken := "<ACCESS_TOKEN_1>"
+fmt.Println(normalValue, timeout, dbName, apiKey, accessToken)
+```
+
+```go
+// After
+type Config struct {
+	Message     string
+	TimeoutMS   int
+	DBName      string
+	APIKey      string
+	AccessToken string
+}
+
+cfg := Config{
+	Message:     "just some text",
+	TimeoutMS:   5000,
+	DBName:      "testdb",
+	APIKey:      "<GENERIC_SECRET_1>",
+	AccessToken: "<ACCESS_TOKEN_1>",
+}
+fmt.Println(cfg)
+```
+
+(As a bonus, this also makes it natural to give `Config` a custom `String()` method that masks `APIKey`/`AccessToken` before printing, addressing the fact that secrets are currently logged in plaintext via `fmt.Println`.)

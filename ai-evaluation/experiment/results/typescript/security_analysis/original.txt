@@ -1,0 +1,10 @@
+## Security Review
+
+**Finding 1**
+- **Severity:** High
+- **Location:** Lines 6–8 (`authToken`, `secretKey`, `bearerHeader`)
+- **Description:** Credential-shaped values (an auth token, a secret key, and a full `Bearer` authorization header) are hardcoded directly as string literals in source.
+- **Why it matters:** Hardcoding secrets in source is a serious anti-pattern independent of whether any particular value is currently real: (1) once committed, the value persists in version-control history even if later removed/rotated; (2) if this file is part of a `website` project and ever gets imported into client-side/browser-bundled code, the "secret" ships to every visitor and is trivially extractable from the JS bundle; (3) the pattern normalizes hardcoding real credentials in future edits/copy-paste, and static/secret-scanners plus reviewers can't reliably distinguish a placeholder from a live credential from the code alone — the `"fake-..."` prefix is not a recognized convention and offers no real protection; (4) a `Bearer` header baked into a constant risks being logged, sent to error-reporting/telemetry, or included in client requests unintentionally.
+- **Suggested fix:** Load these values from environment variables or a secrets manager at runtime (e.g., `process.env.AUTH_TOKEN`), never commit real or realistic-looking secret material to source, add these variable names/patterns to a secret-scanning tool (gitleaks/truffleHog) and pre-commit hook, and if these are meant purely as test fixtures, isolate them in a clearly-named test-only file/module (e.g., `__fixtures__/fake-secrets.ts`) with a comment making the synthetic nature unambiguous to tooling, not mixed in with what looks like ordinary application config (`region`, `retries`, etc.).
+
+**No other findings.** `normalName`, `retries`, and `region` are plain non-sensitive constants with no security implications.

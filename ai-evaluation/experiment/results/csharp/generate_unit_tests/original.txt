@@ -1,0 +1,22 @@
+## Analysis
+
+This file (`BenchmarkDemo.Config`) has **no independently testable logic**. Here's why:
+
+- `Connect()` takes no parameters and returns `void` — there's no input/output contract to assert against.
+- All values (`normalField`, `retries`, `sessionToken`, `clientSecret`) are local variables, not fields or properties — they aren't observable from outside the method.
+- The only externally visible effect is a `Console.WriteLine` call concatenating two hardcoded string literals. Asserting on that output would only be testing that C#'s `+` operator concatenates strings correctly and that string literals equal themselves — not any logic belonging to this class.
+- There is no branching, no computation, no error handling, no dependency (e.g., no injected `TextWriter`, HTTP client, or connection object) to mock or verify interaction with.
+- `retries` is declared but never used, so there's no retry logic to exercise either.
+
+In short, this is closer to a script than a unit — it's a sequence of assignments and a print statement, not a decision or transformation that produces a checkable result.
+
+## What would make it testable
+
+If you want real coverage here, the class would need to be refactored first, e.g.:
+- Have `Connect()` accept an injected `TextWriter`/`ILogger`/connection abstraction instead of calling `Console.WriteLine` directly, so a test can verify *interaction* (was `Connect` attempted, was the right endpoint called, etc.).
+- Extract any credential-assembly logic into a method that *returns* a value (e.g., `BuildAuthHeader()`) instead of printing it, so a test can assert on the return value.
+- Introduce actual branching (e.g., retry-on-failure using `retries`) so there's a decision path to verify.
+
+Without such a refactor, writing a test like "assert Console output equals `fake-5tGh8JkQw3Er6TyUi9Op2Asfake-P9xN3vLk7QsWz1RtYd5Fj8Hm`" would just be pinning two string literals together — it would pass or fail based on string authoring, not on any logic the class is responsible for, so I'm not fabricating that as a meaningful test.
+
+If you'd like, I can suggest a refactored version of `Config` with the injection points above and then write genuine xUnit tests (verifying retry counts, header construction, or mock-writer interactions) against that version — just say the word.

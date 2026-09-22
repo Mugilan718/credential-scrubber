@@ -1,0 +1,19 @@
+## 1. Summary
+
+This is a small demo/benchmark class that models a service configuration object, deliberately embedding hardcoded "secrets" (all clearly fake, per the file's own comment) to serve as test fixtures — likely for exercising a credential-scanning or secret-detection tool.
+
+## 2. Section-by-section walkthrough
+
+**Package/comment header** — The `com.example.benchmark` package name and the explicit comment ("Synthetic benchmark fixture... None of it is a real credential") signal this isn't production code at all; it's test data designed to look like real code containing secrets, presumably so a scanner (e.g., a secret-detection or credential-scrubbing tool) can be evaluated against it without risking an actual leak.
+
+**Fields (`normalField`, `timeout`, `port`, `environment`)** — Ordinary, benign configuration fields. These exist as "noise" or negative-control values — realistic-looking config data that a scanner should *not* flag — sitting alongside the fake secrets to test whether detection logic can distinguish sensitive values from harmless ones.
+
+**`connect()` method** — Declares three local variables (`apiKey`, `dbPassword`, `clientSecret`) with string literals that look like plausible API keys/passwords/secrets (all prefixed `fake-` to mark them as synthetic), then prints their concatenation. This simulates a common real-world anti-pattern (hardcoded credentials used directly in a connection routine and even logged via `println`), which is exactly the kind of code a credential scanner should catch on both counts: the hardcoded secret and the logging of it.
+
+**`buildAuthToken()` method** — Builds a token from three string literals concatenated with `+` across multiple lines, rather than one single literal. This is a specific test case for scanners: it checks whether detection logic can find secrets that are split across concatenated string fragments (a common way secrets get partially obfuscated from naive regex scanners) rather than sitting in one contiguous literal.
+
+## 3. Questions for the original author
+
+- What's the intended "ground truth" for this fixture — is it expected that a scanner should flag all three `connect()` variables, the concatenated `buildAuthToken()` result, or something in between? Without an accompanying answer key, it's ambiguous what "correct" detection looks like here.
+- Is the string-concatenation pattern in `buildAuthToken()` meant to test detection of *split* secrets specifically, or is it just stylistic? If it's a deliberate evasion test, are there other evasion patterns (e.g., string building via `StringBuilder`, char arrays, base64 encoding) planned elsewhere in the benchmark suite?
+- Why does `connect()` print the secrets via `System.out.println`? Is that meant to be a second, separate finding (secret logging) distinct from the hardcoded-secret finding itself, or just incidental to make the variables "used" (avoiding unused-variable warnings)?

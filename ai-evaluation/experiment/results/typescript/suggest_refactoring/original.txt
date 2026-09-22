@@ -1,0 +1,25 @@
+1. **Refactoring**: Replace the hardcoded credential/token literals with values pulled from environment variables (e.g. `process.env.AUTH_TOKEN`), rather than embedding secret-shaped strings directly in source.
+
+2. **Why it's an improvement**: Hardcoded secrets in source files get committed to version control, show up in diffs/logs, and can't be rotated without a code change and redeploy. Sourcing them from environment variables (or a secrets manager) keeps sensitive values out of the codebase, lets them differ per environment, and allows rotation without touching code — this matters regardless of whether these particular values are fake, since the pattern is what gets copy-pasted into real code.
+
+3. **Before/after**:
+
+```ts
+// Before
+const authToken = "fake-Nq4Wz8Xr2Vt6Ym1Lp9Bk3Sd7";
+const secretKey: string = "fake-Zt5Yv8Bq2Nx9Wr3Ld6Fh1Gj4";
+const bearerHeader = "Bearer fake.jwt.header-payload-signature123456";
+```
+
+```ts
+// After
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
+  return value;
+}
+
+const authToken = requireEnv("AUTH_TOKEN");
+const secretKey: string = requireEnv("SECRET_KEY");
+const bearerHeader = `Bearer ${requireEnv("JWT_TOKEN")}`;
+```

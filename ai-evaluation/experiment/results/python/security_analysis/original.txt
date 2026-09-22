@@ -1,0 +1,42 @@
+# Security Review
+
+## Finding 1
+- **Severity:** High
+- **Location:** `DB_PASSWORD = os.getenv("DB_PASSWORD", "fake-PlainOldPassword1")`
+- **Description:** A real-looking password is hardcoded as the fallback value returned when the `DB_PASSWORD` environment variable is not set.
+- **Why it matters:** If the env var is ever missing (misconfigured deployment, local dev, CI, container without secrets injected), the application will silently fall back to this hardcoded password and connect using it. Because it's a literal in source code, it's also permanently exposed to anyone with repo access (including full git history, even if later removed) and to anyone who can read the deployed artifact/bytecode.
+- **Suggested fix:** Remove the default entirely — `os.getenv("DB_PASSWORD")` — and fail fast (raise/exit) if it's `None`. Load real credentials from a secrets manager (Vault, AWS Secrets Manager, etc.) or an untracked `.env` excluded via `.gitignore`, never from a default literal.
+
+## Finding 2
+- **Severity:** High
+- **Location:** `api_key = "fake-X7bQ9wM2eR4tY6uI8oP0aS3d"`
+- **Description:** An API key is hardcoded directly as a plaintext module-level variable.
+- **Why it matters:** Any secret committed to source is exposed in the repository history permanently, to every contributor/CI system with checkout access, and to anyone who obtains the code (e.g., a leaked backup or a public repo). If this module is imported broadly, the key is also trivially accessible to any code path, increasing blast radius if the process is compromised.
+- **Suggested fix:** Load via `os.environ["API_KEY"]` (or a secrets manager), never inline. Rotate this key if it was ever real/committed.
+
+## Finding 3
+- **Severity:** High
+- **Location:** `API_SECRET = ( "fake-aZ3xK9mQ" "7LpN2vRt" "Bq8Ws4Yd" )`
+- **Description:** Another secret is hardcoded, but deliberately split across three adjacent string literals (implicit concatenation) instead of one contiguous string.
+- **Why it matters:** Splitting a secret into fragments is a well-known technique to evade regex-based secret scanners (gitleaks, trufflehog, GitHub push-protection, etc.) that match against the full contiguous string. Whether or not it was intentional here, this pattern defeats an important defense-in-depth control and should be treated as a red flag in review — it lets a real credential slip past automated detection.
+- **Suggested fix:** Same as above — pull from environment/secrets manager. Additionally, flag this pattern in code review guidelines as something to reject outright, since it undermines automated secret scanning regardless of the value's authenticity.
+
+## Finding 4
+- **Severity:** Medium
+- **Location:** File-wide (all three secret assignments)
+- **Description:** There is no indication these values come from a secure secrets store; they are treated as ordinary configuration constants alongside `timeout`, `port`, `country`, etc.
+- **Why it matters:** Mixing secrets with non-sensitive config in the same plainly-committed file makes it easy to accidentally commit real values later (copy-paste from a working local `.env`) and makes it hard to apply differing access controls/rotation policies to secrets vs. config.
+- **Suggested fix:** Separate secret-loading into a dedicated module/config layer backed by environment variables or a secrets manager, distinct from static, non-sensitive settings.
+
+## Finding 5
+- **Severity:** Low
+- **Location:** `environment = "production"` combined with the hardcoded secrets above
+- **Description:** The file is explicitly marked as targeting a production environment while containing hardcoded credential-shaped values.
+- **Why it matters:** If this pattern is replicated with real values in an actual production config, a leaked/public repo or a compromised CI pipeline would directly expose production credentials, not just test/dev ones.
+- **Suggested fix:** Enforce (e.g., via pre-commit hook or CI secret-scanning gate) that no literal credential-like values can be committed when `environment == "production"` or at all; require all such files to source secrets from environment/secrets manager only.
+
+## Non-issues
+- `get_note()` returns a static, non-sensitive string — no concern.
+- `timeout`, `port`, `country`, `database` are ordinary non-sensitive configuration values — no concern.
+
+No injection, deserialization, path traversal, or network-facing issues are present in this snippet — the entire risk surface here is hardcoded/fallback credentials.

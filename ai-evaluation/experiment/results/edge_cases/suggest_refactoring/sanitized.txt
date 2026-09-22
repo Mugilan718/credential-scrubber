@@ -1,0 +1,27 @@
+**1. Refactoring:** Group the flat keys into namespaced prefixes (e.g. `server.*`, `db.*`, `app.*`) instead of leaving unrelated settings as bare top-level keys.
+
+**2. Why it's an improvement:** Right now `timeout`, `port`, `environment`, `country`, `username`, `database`, and the benchmark-only fields (`ghost_writer`, `concert_hall`, `authored_by`, `tokenizer_version`) all sit at the same flat level with no indication of which subsystem they belong to. Namespacing groups related settings, makes ownership/scope obvious at a glance, avoids future key collisions (e.g. a second `username` for a different service), and lets tooling (or humans) filter/validate a subsystem's config as a unit.
+
+**3. Before/After:**
+
+Before:
+```properties
+timeout = 5000
+port = 8080
+environment = "production"
+country = "India"
+username = "admin"
+database = "testdb"
+```
+
+After:
+```properties
+server.port = 8080
+server.timeout = 5000
+
+app.environment = "production"
+app.country = "India"
+
+db.name = "testdb"
+db.username = "admin"
+```
