@@ -533,6 +533,18 @@ application does not read from or depend on anything under
 - Patch/hunk-level git scanning, instead of whole-changed-file scanning.
 - Customer/user-identifier detection.
 
+## 15. License
+
+Licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(AGPLv3). In practical terms: you're free to use, modify, and
+redistribute this code, including commercially. The one condition that
+differs from plain GPL is what happens if you run a modified version as
+a network service (e.g. host it and let others use it over a network,
+without distributing the software itself) - AGPL treats that as
+distribution too, so you're required to make your modified source
+available to those users, not just to people you hand a copy of the
+binary to. See the [LICENSE](LICENSE) file for the full legal text.
+
 ---
 
 If a real secret is ever found by this tool, rotate it. Masking it for
