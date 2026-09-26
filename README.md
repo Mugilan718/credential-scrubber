@@ -464,13 +464,11 @@ it does.
 
 To confirm the file you downloaded is exactly the one actually built
 from this repository's source (not corrupted in transit, and not
-tampered with), check its SHA-256 checksum against the value published
-in the release notes for that version:
-
-```text
-SHA-256 (CredentialScrubber.exe):
-23b645f355b4db735a8214a746a2313f4e26ac07f5115a57723870f650a9e47a
-```
+tampered with), check its SHA-256 checksum. The exact checksum for each
+release is published in that release's notes on the
+[GitHub Releases page](https://github.com/Mugilan718/credential-scrubber/releases) -
+check there for the value matching the version you downloaded, since a
+value here would go stale the moment a new build is released.
 
 On Windows:
 
