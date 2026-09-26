@@ -446,7 +446,53 @@ specific finding → past scans are kept in per-project history.
 
 A PyInstaller spec (`CredentialScrubber.spec`) is included for building a
 standalone Windows executable from source; no prebuilt binary is
-distributed in this repository.
+distributed in this repository - the packaged `.exe` is published only as
+a GitHub Release asset.
+
+**Verifying your download**
+
+This software is unsigned - it isn't registered with a code-signing
+certificate authority, which costs money and isn't practical for a small
+open-source project to maintain. As a result, Windows SmartScreen and
+most browsers will show an "unrecognized publisher" or "Windows
+protected your PC" warning when you download or run the `.exe`. **This is
+expected for new, unsigned open-source software and is not by itself a
+sign that anything is wrong** - it just means Microsoft hasn't seen
+enough downloads of this specific binary yet to build a reputation for
+it, the same warning any new unsigned executable gets regardless of what
+it does.
+
+To confirm the file you downloaded is exactly the one actually built
+from this repository's source (not corrupted in transit, and not
+tampered with), check its SHA-256 checksum against the value published
+in the release notes for that version:
+
+```text
+SHA-256 (CredentialScrubber.exe):
+23b645f355b4db735a8214a746a2313f4e26ac07f5115a57723870f650a9e47a
+```
+
+On Windows:
+
+```text
+certutil -hashfile CredentialScrubber.exe SHA256
+```
+
+On Mac/Linux:
+
+```text
+shasum -a 256 CredentialScrubber.exe
+```
+
+If the output doesn't match the checksum published for that release, do
+not run the file - re-download it, and if it still doesn't match, open
+an issue.
+
+Since the full source is public, if you'd rather not run a prebuilt
+binary at all, you don't have to - build it yourself directly from
+source with the PyInstaller spec above (`pip install -r requirements.txt
+pyinstaller` then `pyinstaller CredentialScrubber.spec`), so you never
+have to trust a binary you didn't build.
 
 **Tests:**
 
