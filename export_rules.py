@@ -9,7 +9,8 @@ Usage:
 Writes, next to this script:
     rules.json       - the rules, as plain JSON
     rules-data.js     - the same data, as `const RULES = {...}`, exposed as
-                        `window.RULES` when run in a browser
+                        `window.RULES` in a browser or via `module.exports`
+                        under Node (e.g. for a `require()`-based test script)
 """
 import json
 from pathlib import Path
@@ -41,6 +42,10 @@ def write_js(rules, out_path):
         "\n"
         "if (typeof window !== \"undefined\") {\n"
         "  window.RULES = RULES;\n"
+        "}\n"
+        "\n"
+        "if (typeof module !== \"undefined\") {\n"
+        "  module.exports = RULES;\n"
         "}\n"
     )
     with open(out_path, "w", encoding="utf-8") as f:

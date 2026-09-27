@@ -129,3 +129,7 @@ const RULES = {
 if (typeof window !== "undefined") {
   window.RULES = RULES;
 }
+
+if (typeof module !== "undefined") {
+  module.exports = RULES;
+}
