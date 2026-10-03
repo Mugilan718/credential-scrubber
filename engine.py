@@ -1015,31 +1015,27 @@ def list_project_files(input_dir):
     return sorted(paths)
 
 
-def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False, placeholder_mode=False, excluded_paths=None):
+def _walk_and_classify(input_dir, rules, ignore_map, changed_files_only, placeholder_mode, excluded_paths):
     """
-    `placeholder_mode`: opt-in, defaults to False. False (the default)
-    preserves today's behavior exactly - every finding is masked with the
-    single shared MASK constant, byte-for-byte identical to before this
-    parameter existed. True redacts with deterministic, typed
-    placeholders instead (see PlaceholderRegistry) - the same real value,
-    detected as the same category, always gets the same "<CATEGORY_N>"
-    token anywhere in this one scan; different values never collide on
-    one token.
+    Shared core for stage_project()/scan_project(): walks `input_dir` and
+    computes everything a scan would produce - findings AND the exact
+    content that would be written for every file - entirely in memory,
+    without creating or writing to any output directory. Living in one
+    place keeps the walk/skip/classify rules (SKIP_DIRS, excluded_paths,
+    symlinks, changed_files_only) identical for both the immediate-write
+    path (scan_project()) and the preview-before-write path
+    (stage_project()/apply_staged_project()) - two call sites can never
+    drift apart on what counts as "skipped" if there's only one walk.
 
-    `excluded_paths`: an optional iterable of project-relative paths (POSIX
-    separators, e.g. "src/secrets" or "config/local.env") the user has
-    unchecked in the folder-filter tree (see db.py's projects.excluded_paths_json).
-    A path naming a DIRECTORY is pruned from the walk entirely - nothing
-    under it is scanned, copied, or counted, exactly like SKIP_DIRS - not
-    merely left out of the report while still being copied through
-    unredacted. A path naming a FILE is skipped the same way, individually.
-    Default (None/empty) excludes nothing, matching prior behavior exactly.
+    Returns (report_entries, files_scanned, files_skipped, staged_files).
+    `staged_files` is a list of {"rel_path": str, "content": str|None,
+    "src_path": str|None} - exactly one of content/src_path is set per
+    entry: `content` for a classified (config/code) file whose sanitized
+    text was computed here; `src_path` for a copy-through file (no
+    classification, or unreadable), applied later via shutil.copy2 so an
+    unreadable/binary file is never fully loaded into memory here.
     """
     input_dir = Path(input_dir).resolve()
-    output_dir = Path(output_dir).resolve()
-
-    if not input_dir.exists():
-        raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
 
     changed_files = None
     if changed_files_only:
@@ -1049,13 +1045,12 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
                 f"{input_dir} is not a git repository - full scan required"
             )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     excluded_paths = {Path(p).as_posix() for p in (excluded_paths or [])}
 
     report_entries = []
     files_scanned = 0
     files_skipped = []
+    staged_files = []
 
     # One registry for this whole call, never returned or persisted - see
     # PlaceholderRegistry's docstring. None when placeholder_mode is off,
@@ -1104,20 +1099,144 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
                 # there in plaintext).
                 continue
 
-            dest_path = output_dir / rel_path
-            dest_path.parent.mkdir(parents=True, exist_ok=True)
-
             classification = classify_file(src_path)
             if classification is not None:
                 content, error = process_file(src_path, rel_path, rules, report_entries, classification, ignore_map, placeholder_registry)
                 if error:
                     files_skipped.append(str(rel_path))
-                    shutil.copy2(src_path, dest_path)
+                    staged_files.append({"rel_path": str(rel_path), "content": None, "src_path": str(src_path)})
                     continue
-                with open(dest_path, "w", encoding="utf-8") as f:
-                    f.write(content)
+                staged_files.append({"rel_path": str(rel_path), "content": content, "src_path": None})
                 files_scanned += 1
             else:
-                shutil.copy2(src_path, dest_path)
+                staged_files.append({"rel_path": str(rel_path), "content": None, "src_path": str(src_path)})
 
+    return report_entries, files_scanned, files_skipped, staged_files
+
+
+def find_newly_unredacted_ignores(entries_without_ignores, entries_with_ignores):
+    """
+    Which findings are present when ignores are NOT applied but absent
+    once they ARE - i.e. genuinely suppressed-by-ignore in this specific
+    scan, meaning the real value ends up in the staged output for that
+    (file, key, rule) rather than a redaction. This is what the preview
+    step highlights before the user clicks "Apply," regardless of WHY the
+    ignore suppressed it (freshly added, or ignored long ago and still
+    matching - "because of how ignores work" either way): the staged
+    output either does or doesn't contain a real value at that spot, and
+    this answers exactly that, precisely - never flagging a stale ignore
+    that doesn't correspond to any actual finding in the current content
+    (comparing two REAL scans of the same content rather than trusting
+    the ignore list's own bookkeeping sidesteps that entirely).
+
+    Returns a list of {"file", "key", "rule"} dicts - deliberately never
+    the real value itself, consistent with this app's "never surface a
+    bare secret unprompted" posture (see strip_sensitive() in app.py).
+    """
+    without_keys = {(e["file"], e["key"], e["rule"]) for e in entries_without_ignores}
+    with_keys = {(e["file"], e["key"], e["rule"]) for e in entries_with_ignores}
+    return [{"file": f, "key": k, "rule": r} for (f, k, r) in sorted(without_keys - with_keys)]
+
+
+def stage_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False, placeholder_mode=False, excluded_paths=None):
+    """
+    The "preview" half of the preview-before-write flow: computes exactly
+    what a scan would find and write, without creating or touching
+    `output_dir` at all - nothing is written to disk until a separate
+    apply_staged_project() call. `output_dir` is accepted (and resolved)
+    for symmetry with scan_project()/apply_staged_project() and so a
+    caller can compute it once, but this function itself never creates it.
+
+    When `ignore_map` is non-empty, this also runs a SECOND, throwaway
+    walk with no ignores applied at all, purely to compute
+    `newly_unredacted` (see find_newly_unredacted_ignores()) by comparing
+    the two real results - doubles the walk/detection work for that case,
+    an explicit, deliberate tradeoff for a preview step that runs on
+    demand rather than on every keystroke, in exchange for a precise
+    answer with no changes to the detection functions themselves.
+
+    See scan_project() for all other parameters - they mean exactly the
+    same thing here.
+
+    Returns (report_entries, files_scanned, files_skipped, staged_files,
+    newly_unredacted) - see _walk_and_classify()'s docstring for the
+    staged_files shape, and find_newly_unredacted_ignores()'s for
+    newly_unredacted's.
+    """
+    input_dir = Path(input_dir).resolve()
+
+    if not input_dir.exists():
+        raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
+
+    report_entries, files_scanned, files_skipped, staged_files = _walk_and_classify(
+        input_dir, rules, ignore_map, changed_files_only, placeholder_mode, excluded_paths
+    )
+
+    newly_unredacted = []
+    if ignore_map:
+        entries_without_ignores, _, _, _ = _walk_and_classify(
+            input_dir, rules, {}, changed_files_only, placeholder_mode, excluded_paths
+        )
+        newly_unredacted = find_newly_unredacted_ignores(entries_without_ignores, report_entries)
+
+    return report_entries, files_scanned, files_skipped, staged_files, newly_unredacted
+
+
+def apply_staged_project(output_dir, staged_files):
+    """
+    The "write" half: takes a stage_project() result's `staged_files` and
+    actually writes them into `output_dir`, creating it if needed. This is
+    the ONLY function in this module that writes a scan's output to disk
+    for the preview-before-write flow - scan_project() below writes
+    immediately instead, for callers that still want the old one-call
+    behavior.
+    """
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for f in staged_files:
+        dest_path = output_dir / f["rel_path"]
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        if f["content"] is not None:
+            with open(dest_path, "w", encoding="utf-8") as out:
+                out.write(f["content"])
+        else:
+            shutil.copy2(f["src_path"], dest_path)
+
+
+def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False, placeholder_mode=False, excluded_paths=None):
+    """
+    `placeholder_mode`: opt-in, defaults to False. False (the default)
+    preserves today's behavior exactly - every finding is masked with the
+    single shared MASK constant, byte-for-byte identical to before this
+    parameter existed. True redacts with deterministic, typed
+    placeholders instead (see PlaceholderRegistry) - the same real value,
+    detected as the same category, always gets the same "<CATEGORY_N>"
+    token anywhere in this one scan; different values never collide on
+    one token.
+
+    `excluded_paths`: an optional iterable of project-relative paths (POSIX
+    separators, e.g. "src/secrets" or "config/local.env") the user has
+    unchecked in the folder-filter tree (see db.py's projects.excluded_paths_json).
+    A path naming a DIRECTORY is pruned from the walk entirely - nothing
+    under it is scanned, copied, or counted, exactly like SKIP_DIRS - not
+    merely left out of the report while still being copied through
+    unredacted. A path naming a FILE is skipped the same way, individually.
+    Default (None/empty) excludes nothing, matching prior behavior exactly.
+
+    Writes immediately (walks, computes, and writes every file in one
+    pass) - this is the ORIGINAL behavior, kept unchanged for existing
+    callers. New code that wants a review step between computing and
+    writing (highlighting what would be newly unredacted, letting the
+    user confirm before anything touches disk) should call
+    stage_project()/apply_staged_project() separately instead (see
+    app.py's preview/apply endpoints).
+    """
+    input_dir_resolved = Path(input_dir).resolve()
+    if not input_dir_resolved.exists():
+        raise FileNotFoundError(f"Input directory does not exist: {input_dir_resolved}")
+
+    report_entries, files_scanned, files_skipped, staged_files = _walk_and_classify(
+        input_dir_resolved, rules, ignore_map, changed_files_only, placeholder_mode, excluded_paths
+    )
+    apply_staged_project(output_dir, staged_files)
     return report_entries, files_scanned, files_skipped

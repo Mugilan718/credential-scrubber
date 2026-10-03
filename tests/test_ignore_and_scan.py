@@ -286,3 +286,113 @@ def test_rescanning_the_same_project_picks_up_an_on_disk_edit(tmp_path):
 
     second_entries, _, _ = engine.scan_project(project, output_dir, _rules())
     assert "fake-AfterEdit-222" in second_entries[0]["before"], "a later scan of the same project must read the current on-disk content, not a cached copy"
+
+
+# ---------------------------------------------------------------------
+# Preview-before-write (Phase 4): stage_project()/apply_staged_project()/
+# find_newly_unredacted_ignores()
+# ---------------------------------------------------------------------
+
+def test_stage_project_writes_nothing_to_disk(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "app.properties").write_text('password = "fake-StageOnly-111"\n', encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    entries, files_scanned, files_skipped, staged_files, newly_unredacted = engine.stage_project(
+        project, output_dir, _rules()
+    )
+
+    assert len(entries) == 1
+    assert files_scanned == 1
+    assert not output_dir.exists(), "stage_project() must not create the output directory at all"
+    assert len(staged_files) == 1
+    assert staged_files[0]["rel_path"] == "app.properties"
+    assert "fake-StageOnly-111" not in staged_files[0]["content"]
+
+
+def test_apply_staged_project_then_matches_what_scan_project_would_have_written(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "app.properties").write_text('password = "fake-ApplyMatch-222"\n', encoding="utf-8")
+    (project / "notes.txt").write_text("not a classified extension\n", encoding="utf-8")
+
+    staged_output = tmp_path / "staged_out"
+    direct_output = tmp_path / "direct_out"
+
+    _, _, _, staged_files, _ = engine.stage_project(project, staged_output, _rules())
+    engine.apply_staged_project(staged_output, staged_files)
+    engine.scan_project(project, direct_output, _rules())
+
+    for name in ("app.properties", "notes.txt"):
+        assert (staged_output / name).read_text(encoding="utf-8") == (direct_output / name).read_text(encoding="utf-8")
+
+
+def test_preview_flags_an_unchanged_ignored_value_as_newly_unredacted(tmp_path):
+    # check_ignore() hashes the raw captured value exactly as find_key_value
+    # returns it (quotes included for a quoted config value) - unquoted
+    # here so the hash input used by the test matches engine.hash_value(secret)
+    # unambiguously (see test_ignored_finding_is_suppressed's own comment).
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = "fake-StillIgnored-333"
+    (project / "app.properties").write_text(f'password = {secret}\n', encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    value_hash = engine.hash_value(secret)
+    ignore_map = {("app.properties", "password", "key_name_match"): value_hash}
+
+    entries, _, _, staged_files, newly_unredacted = engine.stage_project(
+        project, output_dir, _rules(), ignore_map=ignore_map
+    )
+
+    assert entries == [], "suppressed - not in the report"
+    assert newly_unredacted == [{"file": "app.properties", "key": "password", "rule": "key_name_match"}]
+    assert secret in staged_files[0]["content"], "the staged content really does contain the real value"
+
+
+def test_preview_does_not_flag_an_ignored_value_that_changed_since_it_was_ignored(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "app.properties").write_text('password = "fake-RotatedValue-444"\n', encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    stale_hash = engine.hash_value("fake-OldValue-444")  # hash of the OLD value, not the current one
+    ignore_map = {("app.properties", "password", "key_name_match"): stale_hash}
+
+    entries, _, _, staged_files, newly_unredacted = engine.stage_project(
+        project, output_dir, _rules(), ignore_map=ignore_map
+    )
+
+    assert len(entries) == 1 and entries[0]["previously_ignored_value_changed"] is True
+    assert newly_unredacted == [], "a changed value gets RE-redacted, not written unredacted - must not be flagged"
+    assert "fake-RotatedValue-444" not in staged_files[0]["content"]
+
+
+def test_preview_with_no_ignores_reports_nothing_newly_unredacted(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "app.properties").write_text('password = "fake-NoIgnores-555"\n', encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    _, _, _, _, newly_unredacted = engine.stage_project(project, output_dir, _rules())  # no ignore_map at all
+    assert newly_unredacted == []
+
+
+def test_changing_an_ignore_between_two_previews_changes_the_newly_unredacted_result(tmp_path):
+    """Models the "stale preview must be invalidated" requirement at the
+    engine level: two stage_project() calls with different ignore_map
+    states (before/after adding an ignore) must themselves disagree -
+    the API layer is what actually enforces re-preview-before-apply."""
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = "fake-AddedMidway-666"
+    (project / "app.properties").write_text(f'password = {secret}\n', encoding="utf-8")  # unquoted - see note above
+    output_dir = tmp_path / "out"
+
+    _, _, _, _, newly_unredacted_before = engine.stage_project(project, output_dir, _rules(), ignore_map={})
+    assert newly_unredacted_before == []
+
+    ignore_map = {("app.properties", "password", "key_name_match"): engine.hash_value(secret)}
+    _, _, _, _, newly_unredacted_after = engine.stage_project(project, output_dir, _rules(), ignore_map=ignore_map)
+    assert newly_unredacted_after == [{"file": "app.properties", "key": "password", "rule": "key_name_match"}]
