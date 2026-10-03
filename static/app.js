@@ -3,6 +3,13 @@ const state = {
   activeProjectId: null,
   activeScanId: null,
   hasScanHistory: false,
+  // Preview-before-write (Phase 4): true from a successful preview until
+  // either applied, or invalidated by an ignore/restore/rules/folder-filter
+  // change - see invalidatePreviewClientSide(). Mirrors (but does not
+  // replace) the server's own _staged_cache staleness check in
+  // api_apply_scan - the server is what actually enforces it; this just
+  // drives whether "Apply to output folder" is shown.
+  previewPending: false,
 };
 
 const el = (id) => document.getElementById(id);
@@ -52,6 +59,7 @@ function initStaticIcons() {
   el("editFoldersBtn").innerHTML = `${icon("folder-open")} Edit folders`;
   el("editRulesBtn").innerHTML = `${icon("pencil")} Edit rules`;
   el("scanBtn").innerHTML = `${icon("play")} Run scan`;
+  el("applyBtn").innerHTML = `${icon("check")} Apply to output folder`;
   el("browseInputBtn").innerHTML = `${icon("folder-open")} Browse&hellip;`;
   el("browseOutputBtn").innerHTML = `${icon("folder-open")} Browse&hellip;`;
   el("saveProjectBtn").innerHTML = `${icon("check")} Create`;
@@ -140,6 +148,10 @@ async function selectProject(projectId) {
   el("scanSummary").classList.add("hidden");
   el("partialOutputWarning").classList.add("hidden");
   el("changedOnlyToggle").checked = false;
+  state.previewPending = false;
+  el("newlyUnredactedWarning").classList.add("hidden");
+  el("previewStaleNote").classList.add("hidden");
+  updateApplyButtonVisibility();
 
   await loadScanHistory(projectId);
   await loadIgnores(projectId);
@@ -220,6 +232,7 @@ el("saveFolderFilterBtn").onclick = async () => {
     });
     el("folderFilterModalOverlay").classList.add("hidden");
     showToast("Folder selection saved — applies on the next scan.");
+    invalidatePreviewClientSide();
   } catch (e) {
     el("folderFilterModalError").textContent = e.message;
     el("folderFilterModalError").classList.remove("hidden");
@@ -523,6 +536,7 @@ el("saveRulesBtn").onclick = async () => {
       body: JSON.stringify(full),
     });
     el("rulesModalOverlay").classList.add("hidden");
+    invalidatePreviewClientSide();
   } catch (e) {
     el("rulesModalError").textContent = e.message;
     el("rulesModalError").classList.remove("hidden");
@@ -531,6 +545,10 @@ el("saveRulesBtn").onclick = async () => {
 
 // ---------- Scanning ----------
 
+// "Run scan"/"Re-scan now" now PREVIEWS - computes and shows everything a
+// scan would find/write, without touching the output folder (see
+// app.py's api_preview_scan()/engine.stage_project()). Nothing is
+// written until "Apply to output folder" is clicked separately.
 el("scanBtn").onclick = async () => {
   const btn = el("scanBtn");
   const changedOnly = el("changedOnlyToggle").checked;
@@ -539,16 +557,18 @@ el("scanBtn").onclick = async () => {
   el("resultsEmpty").classList.add("hidden");
   el("resultsTable").classList.add("hidden");
   el("resultsLoading").classList.remove("hidden");
+  el("previewStaleNote").classList.add("hidden");
   try {
-    const result = await api(`/api/projects/${state.activeProjectId}/scan`, {
+    const result = await api(`/api/projects/${state.activeProjectId}/preview`, {
       method: "POST",
       body: JSON.stringify({ changed_only: changedOnly }),
     });
-    state.activeScanId = result.scan_id;
+    state.previewPending = true;
     renderScanSummary(result);
-    await loadReport(result.scan_id, true);
+    renderNewlyUnredactedWarning(result.newly_unredacted);
+    renderReportEntries(result.entries, true);
     el("resultsLoading").classList.add("hidden");
-    await loadScanHistory(state.activeProjectId);
+    updateApplyButtonVisibility();
   } catch (e) {
     el("resultsLoading").classList.add("hidden");
     alert("Scan failed: " + e.message);
@@ -557,6 +577,83 @@ el("scanBtn").onclick = async () => {
     updateScanButtonLabel();
   }
 };
+
+// "Apply to output folder" writes the MOST RECENT preview's staged result
+// - the only action in this UI that ever touches the output folder. The
+// server re-checks freshness before writing (see api_apply_scan) and
+// refuses with a clear error if an ignore/folder-filter/rules change
+// happened since the preview was computed; invalidatePreviewClientSide()
+// below keeps the button itself from even being offered once that's
+// happened, so the 409 path is a backstop, not the normal way this is
+// discovered.
+el("applyBtn").onclick = async () => {
+  const btn = el("applyBtn");
+  btn.disabled = true;
+  btn.innerHTML = `${icon("spinner", { class: "spin" })} Applying&hellip;`;
+  try {
+    const result = await api(`/api/projects/${state.activeProjectId}/apply`, { method: "POST" });
+    state.activeScanId = result.scan_id;
+    state.previewPending = false;
+    renderScanSummary(result);
+    el("newlyUnredactedWarning").classList.add("hidden");
+    el("previewStaleNote").classList.add("hidden");
+    updateApplyButtonVisibility();
+    await loadScanHistory(state.activeProjectId);
+    showToast("Applied to output folder.");
+  } catch (e) {
+    // Any failure here means "the thing you were about to apply is no
+    // longer valid" (preview out of date, or already cleared entirely by
+    // an ignore/restore/rules/folder-filter change elsewhere) - treated
+    // uniformly rather than a jarring native alert() for one case and a
+    // calmer inline note for the other.
+    state.previewPending = false;
+    updateApplyButtonVisibility();
+    el("newlyUnredactedWarning").classList.add("hidden");
+    el("previewStaleNote").textContent = e.message;
+    el("previewStaleNote").classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `${icon("check")} Apply to output folder`;
+  }
+};
+
+function updateApplyButtonVisibility() {
+  el("applyBtn").classList.toggle("hidden", !state.previewPending);
+}
+
+/**
+ * Marks the current preview stale from an action taken WHILE it was
+ * pending (an ignore/restore/rules-save/folder-filter-save) - hides
+ * "Apply to output folder" and explains why, so the user isn't left
+ * wondering where it went. A no-op if no preview was pending (e.g. these
+ * same actions taken outside the results tab, or on a historical scan).
+ */
+function invalidatePreviewClientSide() {
+  if (!state.previewPending) return;
+  state.previewPending = false;
+  updateApplyButtonVisibility();
+  // The stale preview's "would be written unredacted" list is no longer
+  // trustworthy either - a fresh preview will recompute and re-show it.
+  el("newlyUnredactedWarning").classList.add("hidden");
+  const note = el("previewStaleNote");
+  note.textContent = "Your change means this preview no longer reflects what would be written — click “Re-scan now” for a fresh one before applying.";
+  note.classList.remove("hidden");
+}
+
+function renderNewlyUnredactedWarning(newlyUnredacted) {
+  const box = el("newlyUnredactedWarning");
+  if (!newlyUnredacted || !newlyUnredacted.length) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  const rows = newlyUnredacted.map((e) =>
+    `<li>${escapeHtml(e.file)} — <code>${escapeHtml(e.key || e.rule)}</code> (${escapeHtml(e.rule)})</li>`
+  ).join("");
+  const word = newlyUnredacted.length === 1 ? "finding" : "findings";
+  box.innerHTML = `<strong>${icon("alert")} ${newlyUnredacted.length} previously-ignored ${word} will be written UNREDACTED if you apply this:</strong><ul class="newly-unredacted-list">${rows}</ul>`;
+  box.classList.remove("hidden");
+}
 
 function renderScanSummary(result) {
   const box = el("scanSummary");
@@ -579,13 +676,12 @@ function renderScanSummary(result) {
 
 // ---------- Report rendering ----------
 
-async function loadReport(scanId, animate) {
-  const data = await api(`/api/scans/${scanId}/report`);
-  el("resultsEmpty").classList.toggle("hidden", data.entries.length > 0);
+function renderReportEntries(entries, animate) {
+  el("resultsEmpty").classList.toggle("hidden", entries.length > 0);
   const table = el("resultsTable");
-  table.classList.toggle("hidden", data.entries.length === 0);
+  table.classList.toggle("hidden", entries.length === 0);
 
-  if (data.entries.length === 0) {
+  if (entries.length === 0) {
     table.innerHTML = "";
     return;
   }
@@ -594,7 +690,7 @@ async function loadReport(scanId, animate) {
   let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
       <div>Line</div><div>File</div><div>Value</div><div>Rule</div><div>Key / Variable</div><div></div>
     </div>`;
-  data.entries.forEach((e) => {
+  entries.forEach((e) => {
     const flagged = e.previously_ignored_value_changed;
     const ruleTitle = flagged
       ? `${e.rule} \u2014 previously ignored, but the value changed since; please review`
@@ -613,9 +709,9 @@ async function loadReport(scanId, animate) {
     </div>`;
   table.innerHTML = html;
 
-  wireIgnoreButtons(table, data.entries);
+  wireIgnoreButtons(table, entries);
 
-  el("revealSensitiveBtn").onclick = () => openSensitiveModal(scanId);
+  el("revealSensitiveBtn").onclick = () => openSensitiveModal();
 
   if (animate) {
     setTimeout(() => {
@@ -627,8 +723,19 @@ async function loadReport(scanId, animate) {
   }
 }
 
-async function openSensitiveModal(scanId) {
-  const data = await api(`/api/scans/${scanId}/sensitive`);
+/** Historical scans only - a pending preview is rendered directly via renderReportEntries(). */
+async function loadReport(scanId, animate) {
+  const data = await api(`/api/scans/${scanId}/report`);
+  renderReportEntries(data.entries, animate);
+}
+
+async function openSensitiveModal() {
+  // A pending (not yet applied) preview has no scan_id yet - its raw
+  // values live in _staged_cache instead, read via a dedicated endpoint.
+  const endpoint = state.previewPending
+    ? `/api/projects/${state.activeProjectId}/preview/sensitive`
+    : `/api/scans/${state.activeScanId}/sensitive`;
+  const data = await api(endpoint);
   if (data.unavailable) {
     el("sensitiveTable").innerHTML = `<div class="results-empty"><p>${escapeHtml(data.warning)}</p></div>`;
     el("sensitiveModalOverlay").classList.remove("hidden");
@@ -681,6 +788,7 @@ async function ignoreFinding(entry) {
     removeMatchingRows(entry);
     showToast("Finding ignored \u2014 won't reappear on the next scan.");
     await loadIgnores(state.activeProjectId);
+    invalidatePreviewClientSide();
   } catch (e) {
     showToast("Failed to ignore: " + e.message, true);
   }
@@ -737,6 +845,7 @@ async function restoreIgnore(ignoreId) {
     await api(`/api/projects/${state.activeProjectId}/ignore/${ignoreId}`, { method: "DELETE" });
     showToast("Finding restored \u2014 will reappear on the next scan.");
     await loadIgnores(state.activeProjectId);
+    invalidatePreviewClientSide();
   } catch (e) {
     showToast("Failed to restore: " + e.message, true);
   }
@@ -794,10 +903,14 @@ async function loadScanHistory(projectId) {
 
 async function viewHistoricalScan(scanId) {
   state.activeScanId = scanId;
+  state.previewPending = false;
   document.querySelector('[data-tab="results"]').click();
   await loadReport(scanId, false);
   el("scanSummary").classList.add("hidden");
   el("partialOutputWarning").classList.add("hidden");
+  el("newlyUnredactedWarning").classList.add("hidden");
+  el("previewStaleNote").classList.add("hidden");
+  updateApplyButtonVisibility();
 }
 window.viewHistoricalScan = viewHistoricalScan;
 

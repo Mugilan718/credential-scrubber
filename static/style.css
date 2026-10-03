@@ -927,6 +927,13 @@ body {
   flex-shrink: 0;
 }
 
+/* ---------- Preview-before-write (Phase 4) ---------- */
+
+.stale-note {
+  color: var(--danger) !important;
+  font-weight: 600;
+}
+
 .sensitive-warning {
   background: var(--danger-bg);
   border: 1px solid var(--danger);

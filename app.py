@@ -93,6 +93,21 @@ def _is_str_list(value):
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+# Preview-before-write (Phase 4): a staged (computed, not-yet-written)
+# scan result, in memory only, keyed by project_id - never written to
+# disk or the database. "Run scan"/"Re-scan now" computes and stores one
+# of these; "Apply to output folder" writes it, after re-checking it's
+# still fresh (see api_apply_scan). Cleared whenever anything that would
+# change the computed result changes underneath it (an ignore added or
+# restored, the folder-filter selection edited, or the rules edited) -
+# see _invalidate_staged_preview() below, called from each of those routes.
+_staged_cache = {}
+
+
+def _invalidate_staged_preview(project_id):
+    _staged_cache.pop(project_id, None)
+
+
 def validate_rules(rules):
     """Validate the shape of a rules dict before it's persisted.
 
@@ -231,6 +246,7 @@ def api_update_excluded_paths(project_id):
     if not isinstance(excluded_paths, list) or not all(isinstance(p, str) for p in excluded_paths):
         return jsonify({"error": "excluded_paths must be a list of strings"}), 400
     db.update_excluded_paths(project_id, excluded_paths)
+    _invalidate_staged_preview(project_id)
     return jsonify({"excluded_paths": excluded_paths})
 
 
@@ -262,6 +278,7 @@ def api_browse_folder():
 @app.route("/api/projects/<int:project_id>", methods=["DELETE"])
 def api_delete_project(project_id):
     db.delete_project(project_id)
+    _invalidate_staged_preview(project_id)
     return jsonify({"deleted": True})
 
 
@@ -283,11 +300,31 @@ def api_update_rules(project_id):
     if error:
         return jsonify({"error": error}), 400
     db.update_project_rules(project_id, new_rules)
+    _invalidate_staged_preview(project_id)
     return jsonify(new_rules)
 
 
-@app.route("/api/projects/<int:project_id>/scan", methods=["POST"])
-def api_run_scan(project_id):
+def _compile_project_rules(project_id, rules_dict):
+    # Write rules_dict to a temp yaml file since engine.load_rules expects a path.
+    # Uses db.DATA_DIR (writable per-user app data), not APP_DIR - APP_DIR may be
+    # a read-only install location, or a frozen .exe's temp extraction dir.
+    db.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    tmp_rules_path = db.DATA_DIR / f"rules_project_{project_id}.yaml"
+    with open(tmp_rules_path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(rules_dict, f)
+    return engine.load_rules(tmp_rules_path)
+
+
+@app.route("/api/projects/<int:project_id>/preview", methods=["POST"])
+def api_preview_scan(project_id):
+    """
+    Preview-before-write, step 1: computes everything a scan would find
+    AND everything it would write (see engine.stage_project()), without
+    touching the output folder at all. The result is held in
+    `_staged_cache` (memory only) until a matching POST to .../apply, or
+    until invalidated by an ignore/folder-filter/rules change in the
+    meantime (see _invalidate_staged_preview()).
+    """
     project = db.get_project(project_id)
     if not project:
         return jsonify({"error": "Project not found"}), 404
@@ -296,22 +333,13 @@ def api_run_scan(project_id):
     changed_only = bool(body.get("changed_only", False))
 
     rules_dict = json.loads(project["rules_json"])
-
-    # Write rules_dict to a temp yaml file since engine.load_rules expects a path.
-    # Uses db.DATA_DIR (writable per-user app data), not APP_DIR - APP_DIR may be
-    # a read-only install location, or a frozen .exe's temp extraction dir.
-    db.DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp_rules_path = db.DATA_DIR / f"rules_project_{project_id}.yaml"
-    with open(tmp_rules_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(rules_dict, f)
-
-    compiled_rules = engine.load_rules(tmp_rules_path)
+    compiled_rules = _compile_project_rules(project_id, rules_dict)
 
     ignore_map = {(i["file"], i["key"], i["rule"]): i["value_hash"] for i in db.list_ignores(project_id)}
     excluded_paths = db.get_excluded_paths(project_id)
 
     try:
-        report_entries, files_scanned, files_skipped = engine.scan_project(
+        report_entries, files_scanned, files_skipped, staged_files, newly_unredacted = engine.stage_project(
             project["input_path"], project["output_path"], compiled_rules, ignore_map,
             changed_files_only=changed_only, excluded_paths=excluded_paths,
         )
@@ -320,21 +348,83 @@ def api_run_scan(project_id):
     except FileNotFoundError as e:
         return jsonify({"error": str(e)}), 400
 
-    scan_id = db.record_scan(project_id, files_scanned, len(report_entries), strip_sensitive(report_entries))
-    _cache_sensitive_report(scan_id, report_entries)
+    # What "fresh" means for this preview, re-checked at apply time -
+    # anything in this tuple changing invalidates it (see api_apply_scan).
+    _staged_cache[project_id] = {
+        "staged_files": staged_files,
+        "report_entries": report_entries,
+        "files_scanned": files_scanned,
+        "files_skipped": files_skipped,
+        "changed_only": changed_only,
+        "rules_json": project["rules_json"],
+        "ignore_map": ignore_map,
+        "excluded_paths": excluded_paths,
+    }
 
     return jsonify({
-        "scan_id": scan_id,
         "files_scanned": files_scanned,
         "files_skipped": files_skipped,
         "total_redactions": len(report_entries),
+        "entries": strip_sensitive(report_entries),
+        "newly_unredacted": newly_unredacted,
         "output_path": project["output_path"],
         "changed_only": changed_only,
         "partial_output": changed_only,
         "partial_output_warning": (
+            "Partial output - only changed files would be written. "
+            "This would not be a complete sanitized copy of the project."
+        ) if changed_only else None,
+    })
+
+
+@app.route("/api/projects/<int:project_id>/apply", methods=["POST"])
+def api_apply_scan(project_id):
+    """
+    Preview-before-write, step 2: writes the MOST RECENT preview's staged
+    result to the output folder - the only place in this API that ever
+    writes a project's sanitized output - but only if nothing that would
+    change the computed result (an ignore, the folder-filter selection, or
+    the rules) has changed since that preview was computed. If it has,
+    refuses with 409 and requires a fresh .../preview call instead of
+    silently applying content that no longer matches current state.
+    """
+    project = db.get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    staged = _staged_cache.get(project_id)
+    if not staged:
+        return jsonify({"error": "No preview available - run a scan to preview it before applying."}), 409
+
+    current_ignore_map = {(i["file"], i["key"], i["rule"]): i["value_hash"] for i in db.list_ignores(project_id)}
+    current_excluded_paths = db.get_excluded_paths(project_id)
+    is_stale = (
+        current_ignore_map != staged["ignore_map"]
+        or current_excluded_paths != staged["excluded_paths"]
+        or project["rules_json"] != staged["rules_json"]
+    )
+    if is_stale:
+        _invalidate_staged_preview(project_id)
+        return jsonify({"error": "This preview is out of date (an ignore, the folder selection, or the rules changed since) - run a fresh preview before applying."}), 409
+
+    engine.apply_staged_project(project["output_path"], staged["staged_files"])
+
+    scan_id = db.record_scan(project_id, staged["files_scanned"], len(staged["report_entries"]), strip_sensitive(staged["report_entries"]))
+    _cache_sensitive_report(scan_id, staged["report_entries"])
+    _invalidate_staged_preview(project_id)
+
+    return jsonify({
+        "scan_id": scan_id,
+        "files_scanned": staged["files_scanned"],
+        "files_skipped": staged["files_skipped"],
+        "total_redactions": len(staged["report_entries"]),
+        "output_path": project["output_path"],
+        "changed_only": staged["changed_only"],
+        "partial_output": staged["changed_only"],
+        "partial_output_warning": (
             "Partial output - only changed files were written. "
             "This is not a complete sanitized copy of the project."
-        ) if changed_only else None,
+        ) if staged["changed_only"] else None,
     })
 
 
@@ -352,30 +442,41 @@ def api_list_ignores(project_id):
 
 
 def _lookup_current_value_hash(project_id, file, key, rule):
-    """Find this (file, key, rule) finding's raw value in the project's most
-    recent scan and hash it, so future scans can tell if the value has since
-    changed. Reuses the value the scan already captured, from the in-memory
-    _sensitive_cache (raw values are never persisted to the database - see
-    its module-level comment) rather than asking the client to send the real
-    secret through this endpoint - the safe results view's Ignore button
-    never has the raw value to send anyway.
+    """Find this (file, key, rule) finding's raw value and hash it, so
+    future scans can tell if the value has since changed. Checks the
+    project's PENDING preview first (see _staged_cache - Phase 4: the
+    normal flow is now ignoring a finding straight from an unapplied
+    preview's results table, before any scan is ever recorded), then
+    falls back to the most recently APPLIED scan's raw values in
+    _sensitive_cache (raw values are never persisted to the database -
+    see its module-level comment) rather than asking the client to send
+    the real secret through this endpoint - the safe results view's
+    Ignore button never has the raw value to send anyway.
 
-    Returns None if there's no scan yet, no matching finding in it, or the
-    most recent scan's raw values have aged out of the in-memory cache (e.g.
-    the app was restarted since) - in which case the ignore is still added,
-    just without a value_hash to verify against later (surfaced in the UI as
-    "value tracked: No").
+    Returns None if there's no pending preview or applied scan yet, no
+    matching finding in either, or the most recent one's raw values have
+    aged out of the in-memory cache (e.g. the app was restarted since) -
+    in which case the ignore is still added, just without a value_hash to
+    verify against later (surfaced in the UI as "value tracked: No").
     """
+    def _search(raw_entries):
+        if raw_entries is None:
+            return None
+        for entry in raw_entries:
+            if entry["file"] == file and entry.get("key") == key and entry["rule"] == rule:
+                return engine.hash_value(entry["before"])
+        return None
+
+    staged = _staged_cache.get(project_id)
+    if staged:
+        found = _search(staged["report_entries"])
+        if found is not None:
+            return found
+
     scans = db.list_scans(project_id)
     if not scans:
         return None
-    raw_entries = _sensitive_cache.get(scans[0]["id"])
-    if raw_entries is None:
-        return None
-    for entry in raw_entries:
-        if entry["file"] == file and entry.get("key") == key and entry["rule"] == rule:
-            return engine.hash_value(entry["before"])
-    return None
+    return _search(_sensitive_cache.get(scans[0]["id"]))
 
 
 @app.route("/api/projects/<int:project_id>/ignore", methods=["POST"])
@@ -389,6 +490,7 @@ def api_add_ignore(project_id):
         return jsonify({"error": error}), 400
     value_hash = _lookup_current_value_hash(project_id, data["file"], data.get("key"), data["rule"])
     ignore_id = db.add_ignore(project_id, data["file"], data.get("key"), data["rule"], value_hash)
+    _invalidate_staged_preview(project_id)
     return jsonify({"id": ignore_id, "project_id": project_id, "file": data["file"],
                      "key": data.get("key"), "rule": data["rule"], "value_hash": value_hash}), 201
 
@@ -402,6 +504,7 @@ def api_remove_ignore(project_id, ignore_id):
     if ignore_id not in existing_ids:
         return jsonify({"error": "Ignore entry not found for this project"}), 404
     db.remove_ignore(ignore_id)
+    _invalidate_staged_preview(project_id)
     return jsonify({"deleted": True})
 
 
@@ -454,6 +557,32 @@ def api_get_sensitive_report(scan_id):
         "timestamp": scan["timestamp"],
         "warning": "This report contains real secret values. Do not share, export, or paste this elsewhere.",
         "entries": raw_entries,
+    })
+
+
+@app.route("/api/projects/<int:project_id>/preview/sensitive", methods=["GET"])
+def api_get_preview_sensitive_report(project_id):
+    """
+    Sensitive view for a PENDING preview (not yet applied) - same
+    "reveal original values" idea as /api/scans/<id>/sensitive, but reads
+    straight from _staged_cache since a preview has no scan_id yet (it
+    only gets one once applied). 200 + unavailable:true if there's no
+    pending preview (already applied, invalidated, or never run), rather
+    than a 404, mirroring that endpoint's own convention.
+    """
+    project = db.get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    staged = _staged_cache.get(project_id)
+    if not staged:
+        return jsonify({
+            "warning": "No preview is currently pending for this project - run a scan to generate one.",
+            "entries": [],
+            "unavailable": True,
+        })
+    return jsonify({
+        "warning": "This report contains real secret values. Do not share, export, or paste this elsewhere.",
+        "entries": staged["report_entries"],
     })
 
 

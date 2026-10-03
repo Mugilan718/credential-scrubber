@@ -63,6 +63,7 @@
           <button id="editFoldersBtn" class="btn-secondary"></button>
           <button id="editRulesBtn" class="btn-secondary"></button>
           <button id="scanBtn" class="btn-primary"></button>
+          <button id="applyBtn" class="btn-primary btn-apply hidden"></button>
         </div>
       </header>
 
@@ -75,6 +76,8 @@
       <section id="tab-results" class="tab-panel active">
         <div id="scanSummary" class="scan-summary hidden"></div>
         <div id="partialOutputWarning" class="sensitive-warning hidden"></div>
+        <div id="newlyUnredactedWarning" class="sensitive-warning hidden"></div>
+        <p id="previewStaleNote" class="modal-hint stale-note hidden"></p>
         <div id="resultsLoading" class="skeleton-block hidden">
           <div class="skeleton-row"></div>
           <div class="skeleton-row"></div>

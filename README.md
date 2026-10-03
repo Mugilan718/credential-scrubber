@@ -276,11 +276,21 @@ YAML block-scalar body would not currently be detected.
   stored with the project itself, so it persists across app restarts.
 - **"Run scan" always reads fresh from disk, including on a project
   that's already been scanned before** - there is no cached/stale state
-  to invalidate. Once a project has at least one scan on record, the
-  button relabels itself "Re-scan now" to make this explicit, matching
-  the website version's "Scan again" concept; functionally, re-scanning
-  has always worked this way, this just makes it visible rather than
-  implied.
+  to invalidate. Once a project has at least one APPLIED scan on record
+  (see below), the button relabels itself "Re-scan now" to make this
+  explicit, matching the website version's "Scan again" concept;
+  functionally, re-reading has always worked this way, this just makes
+  it visible rather than implied.
+- **Scanning is a preview-before-write flow, not an immediate write.**
+  "Run scan"/"Re-scan now" computes everything a scan would find and
+  write - including which already-ignored findings would end up written
+  UNREDACTED, highlighted explicitly - without touching the output
+  folder at all. Only a separate "Apply to output folder" click actually
+  writes anything to disk, and only a completed Apply is recorded in
+  scan history. If an ignore, the folder-filter selection, or the rules
+  change after previewing but before applying, the stale preview is
+  invalidated and a fresh one is required - the server itself refuses a
+  stale Apply (409), not just the UI hiding the button.
 
 None of the above is a claim of absolute security. See
 [§8](#8-what-the-experiment-does-not-establish) and
