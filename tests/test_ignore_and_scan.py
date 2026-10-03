@@ -196,3 +196,67 @@ def test_restore_redaction_makes_a_later_scan_redact_the_value_again(tmp_path, m
     sanitized_third = (output_dir / "app.properties").read_text(encoding="utf-8")
     assert secret not in sanitized_third, "restored finding is redacted again on the next scan"
 
+
+# ---------------------------------------------------------------------
+# Folder-filtering tree (Phase 2): excluded_paths and list_project_files
+# ---------------------------------------------------------------------
+
+def test_list_project_files_lists_everything_except_skip_dirs(tmp_path):
+    project = tmp_path / "project"
+    (project / "src").mkdir(parents=True)
+    (project / "node_modules" / "pkg").mkdir(parents=True)
+    (project / "src" / "app.py").write_text("x = 1\n", encoding="utf-8")
+    (project / "top.env").write_text("A=1\n", encoding="utf-8")
+    (project / "node_modules" / "pkg" / "index.js").write_text("// should never appear\n", encoding="utf-8")
+
+    paths = engine.list_project_files(project)
+    assert paths == ["src/app.py", "top.env"]
+
+
+def test_excluded_directory_is_skipped_entirely_not_just_left_out_of_the_report(tmp_path):
+    project = tmp_path / "project"
+    (project / "keep").mkdir(parents=True)
+    (project / "exclude_me").mkdir(parents=True)
+    (project / "keep" / "app.properties").write_text('password = "fake-Keep-123"\n', encoding="utf-8")
+    (project / "exclude_me" / "secrets.properties").write_text('password = "fake-Excluded-456"\n', encoding="utf-8")
+
+    output_dir = tmp_path / "out"
+    entries, files_scanned, _ = engine.scan_project(project, output_dir, _rules(), excluded_paths=["exclude_me"])
+
+    assert files_scanned == 1
+    assert len(entries) == 1
+    # report entries use str(rel_path) (platform-native separators), same
+    # pre-existing convention as every other "file" field in this codebase.
+    assert entries[0]["file"] == str(Path("keep") / "app.properties")
+    # Not merely excluded from the report - never copied through either,
+    # so a real secret in an excluded folder can't end up unredacted in
+    # the output (unlike changed_files_only mode's copy-nothing guarantee,
+    # applied here too for the same reason).
+    assert not (output_dir / "exclude_me").exists()
+
+
+def test_excluded_individual_file_is_skipped_while_its_siblings_still_scan(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "a.properties").write_text('password = "fake-A-111"\n', encoding="utf-8")
+    (project / "b.properties").write_text('password = "fake-B-222"\n', encoding="utf-8")
+
+    output_dir = tmp_path / "out"
+    entries, files_scanned, _ = engine.scan_project(project, output_dir, _rules(), excluded_paths=["a.properties"])
+
+    assert files_scanned == 1
+    assert len(entries) == 1
+    assert entries[0]["file"] == "b.properties"
+    assert not (output_dir / "a.properties").exists()
+    assert (output_dir / "b.properties").exists()
+
+
+def test_no_excluded_paths_behaves_exactly_as_before(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "app.properties").write_text('password = "fake-Unaffected-789"\n', encoding="utf-8")
+
+    output_dir = tmp_path / "out"
+    entries, files_scanned, _ = engine.scan_project(project, output_dir, _rules())  # no excluded_paths at all
+    assert files_scanned == 1
+    assert len(entries) == 1

@@ -266,10 +266,14 @@ YAML block-scalar body would not currently be detected.
   confirmation ("this will restore the original, unmasked value the
   next time this project is scanned") before it takes effect, and can be
   reversed at any time from the Ignored Findings view ("Restore
-  redaction") - the next scan after restoring redacts it again. There is
-  no separate ignore-file/ignore-pattern mechanism, and directory
-  exclusion is a fixed, hardcoded list (`.git`, `node_modules`,
-  `__pycache__`, build/venv-style directories).
+  redaction") - the next scan after restoring redacts it again.
+- **Directory/file exclusion is two-layered.** A fixed, hardcoded list
+  (`.git`, `node_modules`, `__pycache__`, build/venv-style directories)
+  is always skipped for every project. On top of that, each project has
+  its own folder-filter tree (set when the project is added, or later
+  via "Edit folders") - an unchecked folder or file is skipped entirely
+  from that point on (not scanned, not copied to the output folder),
+  stored with the project itself, so it persists across app restarts.
 
 None of the above is a claim of absolute security. See
 [§8](#8-what-the-experiment-does-not-establish) and

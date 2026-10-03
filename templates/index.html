@@ -60,6 +60,7 @@
             <input type="checkbox" id="changedOnlyToggle" />
             Only scan changed files (git)
           </label>
+          <button id="editFoldersBtn" class="btn-secondary"></button>
           <button id="editRulesBtn" class="btn-secondary"></button>
           <button id="scanBtn" class="btn-primary"></button>
         </div>
@@ -124,6 +125,22 @@
         <button type="button" class="btn-secondary btn-browse" id="browseOutputBtn"></button>
       </div>
     </label>
+
+    <div class="tree-toggle-row">
+      <button type="button" class="btn-secondary btn-small" id="loadTreeBtn"></button>
+    </div>
+    <div id="fileTreeContainer" class="file-tree-container hidden">
+      <p class="modal-hint">Everything is included by default. Uncheck any folder or file you'd rather leave out of every scan.</p>
+      <div class="file-tree-toolbar">
+        <span id="fileTreeSummary" class="file-tree-summary"></span>
+        <span class="file-tree-toolbar-actions">
+          <button type="button" class="btn-secondary btn-small" id="treeSelectAllBtn">Select all</button>
+          <button type="button" class="btn-secondary btn-small" id="treeDeselectAllBtn">Deselect all</button>
+        </span>
+      </div>
+      <div id="fileTreeList" class="file-tree-list" role="tree"></div>
+    </div>
+
     <p class="modal-error hidden" id="projModalError"></p>
     <div class="modal-actions">
       <button class="btn-secondary" id="cancelProjectBtn">Cancel</button>
@@ -155,6 +172,27 @@
     <div class="modal-actions">
       <button class="btn-secondary" id="cancelRulesBtn">Cancel</button>
       <button class="btn-primary" id="saveRulesBtn"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Folder-filter tree modal (Phase 2) -->
+<div class="modal-overlay hidden" id="folderFilterModalOverlay">
+  <div class="modal modal-wide">
+    <h3>Folders to scan</h3>
+    <p class="modal-hint">Uncheck any folder or file you'd rather leave out of every scan of this project. Unchecked paths are skipped entirely - not scanned, not copied to the output folder.</p>
+    <div class="file-tree-toolbar">
+      <span id="editFileTreeSummary" class="file-tree-summary"></span>
+      <span class="file-tree-toolbar-actions">
+        <button type="button" class="btn-secondary btn-small" id="editTreeSelectAllBtn">Select all</button>
+        <button type="button" class="btn-secondary btn-small" id="editTreeDeselectAllBtn">Deselect all</button>
+      </span>
+    </div>
+    <div id="editFileTreeList" class="file-tree-list" role="tree"></div>
+    <p class="modal-error hidden" id="folderFilterModalError"></p>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="cancelFolderFilterBtn">Cancel</button>
+      <button class="btn-primary" id="saveFolderFilterBtn"></button>
     </div>
   </div>
 </div>

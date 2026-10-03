@@ -48,12 +48,15 @@ function initTheme() {
 
 function initStaticIcons() {
   el("newProjectBtn").innerHTML = icon("plus", { size: 16 });
+  el("editFoldersBtn").innerHTML = `${icon("folder-open")} Edit folders`;
   el("editRulesBtn").innerHTML = `${icon("pencil")} Edit rules`;
   el("scanBtn").innerHTML = `${icon("play")} Run scan`;
   el("browseInputBtn").innerHTML = `${icon("folder-open")} Browse&hellip;`;
   el("browseOutputBtn").innerHTML = `${icon("folder-open")} Browse&hellip;`;
   el("saveProjectBtn").innerHTML = `${icon("check")} Create`;
   el("saveRulesBtn").innerHTML = `${icon("check")} Save rules`;
+  el("loadTreeBtn").innerHTML = `${icon("folder-open")} Choose files to include`;
+  el("saveFolderFilterBtn").innerHTML = `${icon("check")} Save`;
   el("closeSensitiveBtn").innerHTML = `${icon("eye-off")} Close`;
   el("sensitiveWarningHeading").innerHTML = `${icon("alert")} Warning — this view contains real secret values.`;
   el("emptyAddBtn").innerHTML = `${icon("plus")} Add your first project`;
@@ -152,6 +155,12 @@ function openProjectModal() {
   el("projInput").value = "";
   el("projOutput").value = "";
   el("projModalError").classList.add("hidden");
+  addProjectTree.reset();
+  el("fileTreeContainer").classList.add("hidden");
+  const loadBtn = el("loadTreeBtn");
+  loadBtn.classList.remove("hidden");
+  loadBtn.disabled = false;
+  loadBtn.innerHTML = `${icon("folder-open")} Choose files to include`;
   el("projectModalOverlay").classList.remove("hidden");
 }
 function closeProjectModal() {
@@ -162,10 +171,13 @@ el("saveProjectBtn").onclick = async () => {
   const name = el("projName").value.trim();
   const input_path = el("projInput").value.trim();
   const output_path = el("projOutput").value.trim();
+  // If the tree was never opened, nothing is excluded - every file is
+  // included, identical to today's default (scan everything).
+  const excluded_paths = addProjectTree.isLoaded() ? addProjectTree.getExcludedPaths() : [];
   try {
     const project = await api("/api/projects", {
       method: "POST",
-      body: JSON.stringify({ name, input_path, output_path }),
+      body: JSON.stringify({ name, input_path, output_path, excluded_paths }),
     });
     closeProjectModal();
     await loadProjects();
@@ -173,6 +185,43 @@ el("saveProjectBtn").onclick = async () => {
   } catch (e) {
     el("projModalError").textContent = e.message;
     el("projModalError").classList.remove("hidden");
+  }
+};
+
+// ---------- Edit folders (Phase 2) ----------
+
+el("editFoldersBtn").onclick = async () => {
+  const project = state.projects.find((p) => p.id === state.activeProjectId);
+  if (!project) return;
+  el("folderFilterModalError").classList.add("hidden");
+  try {
+    const [treeResult, excludedResult] = await Promise.all([
+      api(`/api/file-tree?path=${encodeURIComponent(project.input_path)}`),
+      api(`/api/projects/${project.id}/excluded-paths`),
+    ]);
+    const excluded = new Set(excludedResult.excluded_paths);
+    const checked = treeResult.files.filter((p) => !isPathExcluded(p, excluded));
+    editFoldersTree.load(treeResult.files, checked);
+    el("folderFilterModalOverlay").classList.remove("hidden");
+  } catch (e) {
+    showToast("Failed to load folder list: " + e.message, true);
+  }
+};
+
+el("cancelFolderFilterBtn").onclick = () => el("folderFilterModalOverlay").classList.add("hidden");
+
+el("saveFolderFilterBtn").onclick = async () => {
+  const excluded_paths = editFoldersTree.getExcludedPaths();
+  try {
+    await api(`/api/projects/${state.activeProjectId}/excluded-paths`, {
+      method: "PUT",
+      body: JSON.stringify({ excluded_paths }),
+    });
+    el("folderFilterModalOverlay").classList.add("hidden");
+    showToast("Folder selection saved — applies on the next scan.");
+  } catch (e) {
+    el("folderFilterModalError").textContent = e.message;
+    el("folderFilterModalError").classList.remove("hidden");
   }
 };
 
@@ -200,6 +249,255 @@ async function browseForFolder(inputId, btnId) {
 
 el("browseInputBtn").onclick = () => browseForFolder("projInput", "browseInputBtn");
 el("browseOutputBtn").onclick = () => browseForFolder("projOutput", "browseOutputBtn");
+
+// ---------- Folder-filter tree (Phase 2) ----------
+// Pure tree-building/checkbox-propagation logic, then a small reusable
+// widget factory so the same code backs both the "add project" modal's
+// tree and the "Edit folders" modal's tree, each with its own independent
+// state (only one is ever open at a time, but keeping them separate
+// avoids any chance of one bleeding into the other).
+
+function buildFileTree(paths) {
+  const root = { type: "folder", name: "", path: "", children: [] };
+  paths.forEach((filePath) => {
+    const parts = filePath.split("/");
+    let node = root;
+    let acc = "";
+    parts.forEach((part, i) => {
+      acc = acc ? `${acc}/${part}` : part;
+      if (i === parts.length - 1) {
+        node.children.push({ type: "file", name: part, path: acc });
+      } else {
+        let child = node.children.find((c) => c.type === "folder" && c.name === part);
+        if (!child) {
+          child = { type: "folder", name: part, path: acc, children: [] };
+          node.children.push(child);
+        }
+        node = child;
+      }
+    });
+  });
+  sortTreeChildren(root);
+  return root;
+}
+
+function sortTreeChildren(node) {
+  node.children.sort((a, b) => {
+    if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  node.children.forEach((c) => { if (c.type === "folder") sortTreeChildren(c); });
+}
+
+function collectFilePaths(node, out = []) {
+  if (node.type === "file") { out.push(node.path); return out; }
+  node.children.forEach((c) => collectFilePaths(c, out));
+  return out;
+}
+
+/**
+ * Mirrors engine.scan_project()'s own exclusion check: a stored entry may
+ * be an exact file path, OR a collapsed FOLDER path (see
+ * computeExcludedPaths() above) - any file under that folder is excluded
+ * too, by prefix, not just an exact match.
+ */
+function isPathExcluded(filePath, excludedSet) {
+  if (excludedSet.has(filePath)) return true;
+  for (const ex of excludedSet) {
+    if (filePath.startsWith(ex + "/")) return true;
+  }
+  return false;
+}
+
+function findNodeByPath(node, path) {
+  if (node.path === path) return node;
+  for (const c of node.children) {
+    const found = findNodeByPath(c, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+function getNodeCheckState(node, checkedPaths) {
+  if (node.type === "file") return checkedPaths.has(node.path) ? "checked" : "unchecked";
+  const paths = collectFilePaths(node);
+  const checkedCount = paths.filter((p) => checkedPaths.has(p)).length;
+  if (checkedCount === 0) return "unchecked";
+  if (checkedCount === paths.length) return "checked";
+  return "indeterminate";
+}
+
+function setNodeChecked(node, checked, checkedPaths) {
+  const next = new Set(checkedPaths);
+  const paths = node.type === "file" ? [node.path] : collectFilePaths(node);
+  paths.forEach((p) => { if (checked) next.add(p); else next.delete(p); });
+  return next;
+}
+
+/**
+ * The exclusion list actually sent to the backend: a fully-unchecked
+ * folder contributes just its OWN path (not every file inside it) - this
+ * is what lets engine.scan_project() prune that whole directory from the
+ * walk entirely (see its `dirs[:] = ...` filtering), rather than still
+ * walking into a huge excluded folder and checking every individual file
+ * against the set. An indeterminate folder recurses into its children
+ * instead, since some of them are still included.
+ */
+function computeExcludedPaths(node, checkedPaths, out = []) {
+  if (node.type === "file") {
+    if (!checkedPaths.has(node.path)) out.push(node.path);
+    return out;
+  }
+  const state = getNodeCheckState(node, checkedPaths);
+  if (state === "unchecked") {
+    out.push(node.path);
+  } else if (state === "indeterminate") {
+    node.children.forEach((c) => computeExcludedPaths(c, checkedPaths, out));
+  }
+  return out;
+}
+
+function createFileTreeWidget({ listId, summaryId, selectAllId, deselectAllId }) {
+  let tree = null;
+  let checkedPaths = new Set();
+  let expanded = new Set();
+
+  function render() {
+    const list = el(listId);
+    if (!list) return;
+    if (!tree) { list.innerHTML = ""; return; }
+    let html = "";
+    tree.children.forEach((c) => { html += rowHtml(c, 0); });
+    list.innerHTML = html || `<p class="modal-hint" style="padding: var(--space-3) 0 0;">No files found.</p>`;
+    list.querySelectorAll('[data-indeterminate="true"]').forEach((cb) => { cb.indeterminate = true; });
+    updateSummary();
+  }
+
+  function rowHtml(node, depth) {
+    const state = getNodeCheckState(node, checkedPaths);
+    const indent = `padding-left:${depth * 16 + 12}px`;
+    if (node.type === "file") {
+      return `<div class="tree-row tree-file" style="${indent}">
+        <span class="tree-toggle-spacer"></span>
+        <input type="checkbox" class="tree-checkbox" data-path="${escapeHtml(node.path)}" ${state === "checked" ? "checked" : ""} />
+        ${icon("file", { size: 13, class: "tree-icon" })}
+        <span class="tree-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</span>
+      </div>`;
+    }
+    const isExpanded = expanded.has(node.path);
+    const fileCount = collectFilePaths(node).length;
+    let html = `<div class="tree-row tree-folder" style="${indent}">
+      <button type="button" class="tree-toggle" data-path="${escapeHtml(node.path)}" aria-expanded="${isExpanded}" aria-label="${isExpanded ? "Collapse" : "Expand"} ${escapeHtml(node.name)}">
+        ${icon("chevron-right", { size: 13 })}
+      </button>
+      <input type="checkbox" class="tree-checkbox" data-path="${escapeHtml(node.path)}" ${state === "checked" ? "checked" : ""} ${state === "indeterminate" ? 'data-indeterminate="true"' : ""} />
+      ${icon("folder-open", { size: 13, class: "tree-icon" })}
+      <span class="tree-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</span>
+      <span class="tree-count">${fileCount} file${fileCount === 1 ? "" : "s"}</span>
+    </div>`;
+    if (isExpanded) {
+      node.children.forEach((c) => { html += rowHtml(c, depth + 1); });
+    }
+    return html;
+  }
+
+  function updateSummary() {
+    const summaryEl = el(summaryId);
+    if (!summaryEl) return;
+    if (!tree) { summaryEl.textContent = ""; return; }
+    const total = collectFilePaths(tree).length;
+    summaryEl.textContent = `${checkedPaths.size} of ${total} files selected`;
+  }
+
+  const listEl = el(listId);
+  listEl.addEventListener("click", (e) => {
+    const toggleBtn = e.target.closest(".tree-toggle");
+    if (!toggleBtn) return;
+    const path = toggleBtn.dataset.path;
+    if (expanded.has(path)) expanded.delete(path);
+    else expanded.add(path);
+    render();
+  });
+  listEl.addEventListener("change", (e) => {
+    const checkbox = e.target.closest(".tree-checkbox");
+    if (!checkbox || !tree) return;
+    const node = findNodeByPath(tree, checkbox.dataset.path);
+    if (!node) return;
+    checkedPaths = setNodeChecked(node, checkbox.checked, checkedPaths);
+    render();
+  });
+  if (selectAllId) {
+    el(selectAllId).onclick = () => {
+      if (!tree) return;
+      checkedPaths = setNodeChecked(tree, true, checkedPaths);
+      render();
+    };
+  }
+  if (deselectAllId) {
+    el(deselectAllId).onclick = () => {
+      if (!tree) return;
+      checkedPaths = setNodeChecked(tree, false, checkedPaths);
+      render();
+    };
+  }
+
+  return {
+    load(allPaths, initialCheckedPaths) {
+      tree = buildFileTree(allPaths);
+      checkedPaths = new Set(initialCheckedPaths);
+      expanded = new Set();
+      render();
+    },
+    reset() {
+      tree = null;
+      checkedPaths = new Set();
+      expanded = new Set();
+      render();
+    },
+    isLoaded: () => !!tree,
+    getAllPaths: () => (tree ? collectFilePaths(tree) : []),
+    getCheckedPaths: () => new Set(checkedPaths),
+    getExcludedPaths: () => {
+      if (!tree) return [];
+      const out = [];
+      tree.children.forEach((c) => computeExcludedPaths(c, checkedPaths, out));
+      return out;
+    },
+  };
+}
+
+const addProjectTree = createFileTreeWidget({
+  listId: "fileTreeList", summaryId: "fileTreeSummary",
+  selectAllId: "treeSelectAllBtn", deselectAllId: "treeDeselectAllBtn",
+});
+const editFoldersTree = createFileTreeWidget({
+  listId: "editFileTreeList", summaryId: "editFileTreeSummary",
+  selectAllId: "editTreeSelectAllBtn", deselectAllId: "editTreeDeselectAllBtn",
+});
+
+el("loadTreeBtn").onclick = async () => {
+  const inputPath = el("projInput").value.trim();
+  if (!inputPath) {
+    el("projModalError").textContent = "Enter the folder to scan first.";
+    el("projModalError").classList.remove("hidden");
+    return;
+  }
+  const btn = el("loadTreeBtn");
+  const originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `${icon("spinner", { class: "spin" })} Loading&hellip;`;
+  try {
+    const result = await api(`/api/file-tree?path=${encodeURIComponent(inputPath)}`);
+    addProjectTree.load(result.files, result.files); // everything checked by default
+    el("fileTreeContainer").classList.remove("hidden");
+    btn.classList.add("hidden"); // the tree's own Select/Deselect all take over from here
+  } catch (e) {
+    el("projModalError").textContent = e.message;
+    el("projModalError").classList.remove("hidden");
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
+};
 
 // ---------- Rules editor ----------
 

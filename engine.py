@@ -990,7 +990,32 @@ def get_git_changed_files(input_dir):
     return changed
 
 
-def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False, placeholder_mode=False):
+def list_project_files(input_dir):
+    """
+    A sorted, flat list of project-relative file paths (POSIX separators)
+    under `input_dir`, respecting the exact same SKIP_DIRS/symlink
+    exclusions scan_project() itself applies - used to build the
+    folder-filter tree UI (see db.py's projects.excluded_paths_json) from
+    a single source of truth, rather than a second copy of the skip logic
+    that could drift out of sync with what scan_project() actually walks.
+    Pure listing - does not read file content or classify anything.
+    """
+    input_dir = Path(input_dir).resolve()
+    if not input_dir.exists():
+        raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
+
+    paths = []
+    for root, dirs, files in os.walk(input_dir):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        for fname in sorted(files):
+            src_path = Path(root) / fname
+            if src_path.is_symlink():
+                continue
+            paths.append(src_path.relative_to(input_dir).as_posix())
+    return sorted(paths)
+
+
+def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only=False, placeholder_mode=False, excluded_paths=None):
     """
     `placeholder_mode`: opt-in, defaults to False. False (the default)
     preserves today's behavior exactly - every finding is masked with the
@@ -1000,6 +1025,15 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
     detected as the same category, always gets the same "<CATEGORY_N>"
     token anywhere in this one scan; different values never collide on
     one token.
+
+    `excluded_paths`: an optional iterable of project-relative paths (POSIX
+    separators, e.g. "src/secrets" or "config/local.env") the user has
+    unchecked in the folder-filter tree (see db.py's projects.excluded_paths_json).
+    A path naming a DIRECTORY is pruned from the walk entirely - nothing
+    under it is scanned, copied, or counted, exactly like SKIP_DIRS - not
+    merely left out of the report while still being copied through
+    unredacted. A path naming a FILE is skipped the same way, individually.
+    Default (None/empty) excludes nothing, matching prior behavior exactly.
     """
     input_dir = Path(input_dir).resolve()
     output_dir = Path(output_dir).resolve()
@@ -1017,6 +1051,8 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    excluded_paths = {Path(p).as_posix() for p in (excluded_paths or [])}
+
     report_entries = []
     files_scanned = 0
     files_skipped = []
@@ -1028,13 +1064,25 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
     placeholder_registry = PlaceholderRegistry() if placeholder_mode else None
 
     for root, dirs, files in os.walk(input_dir):
-        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        current_rel = Path(root).relative_to(input_dir)
+        dirs[:] = sorted(
+            d for d in dirs
+            if d not in SKIP_DIRS and (current_rel / d).as_posix() not in excluded_paths
+        )
         # Sorted so file/placeholder-numbering order is reproducible
         # across repeated scans of unchanged input - os.walk's own
         # per-directory order is not a documented guarantee.
         for fname in sorted(files):
             src_path = Path(root) / fname
             rel_path = src_path.relative_to(input_dir)
+
+            if rel_path.as_posix() in excluded_paths:
+                # Unchecked in the folder-filter tree - skipped entirely,
+                # same as an excluded directory above: not scanned, not
+                # copied through, not counted in files_skipped (that list
+                # is for genuine read/symlink problems, not a deliberate
+                # user choice).
+                continue
 
             if src_path.is_symlink():
                 # A symlink can point anywhere on disk the OS user can read

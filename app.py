@@ -176,6 +176,7 @@ def api_create_project():
     name = data.get("name", "").strip()
     input_path = data.get("input_path", "").strip()
     output_path = data.get("output_path", "").strip()
+    excluded_paths = data.get("excluded_paths") or []
 
     if not name or not input_path or not output_path:
         return jsonify({"error": "name, input_path, and output_path are all required"}), 400
@@ -183,9 +184,54 @@ def api_create_project():
     if not Path(input_path).exists():
         return jsonify({"error": f"Input path does not exist: {input_path}"}), 400
 
+    if not isinstance(excluded_paths, list) or not all(isinstance(p, str) for p in excluded_paths):
+        return jsonify({"error": "excluded_paths must be a list of strings"}), 400
+
     rules_dict = load_default_rules_dict()
-    project_id = db.create_project(name, input_path, output_path, rules_dict)
+    project_id = db.create_project(name, input_path, output_path, rules_dict, excluded_paths)
     return jsonify(db.get_project(project_id)), 201
+
+
+@app.route("/api/file-tree", methods=["GET"])
+def api_file_tree():
+    """
+    Lists a directory's files for the folder-filter tree UI - takes a raw
+    filesystem `path` query param rather than a project id, so it works
+    both before a project exists yet (the "add project" modal, where the
+    user has only typed/browsed an input path) and after (editing an
+    existing project's exclusions from its own input_path).
+    """
+    path = (request.args.get("path") or "").strip()
+    if not path:
+        return jsonify({"error": "path is required"}), 400
+    if not Path(path).is_dir():
+        return jsonify({"error": f"Not a directory: {path}"}), 400
+    try:
+        files = engine.list_project_files(path)
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"files": files})
+
+
+@app.route("/api/projects/<int:project_id>/excluded-paths", methods=["GET"])
+def api_get_excluded_paths(project_id):
+    project = db.get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    return jsonify({"excluded_paths": db.get_excluded_paths(project_id)})
+
+
+@app.route("/api/projects/<int:project_id>/excluded-paths", methods=["PUT"])
+def api_update_excluded_paths(project_id):
+    project = db.get_project(project_id)
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+    data = request.get_json()
+    excluded_paths = data.get("excluded_paths")
+    if not isinstance(excluded_paths, list) or not all(isinstance(p, str) for p in excluded_paths):
+        return jsonify({"error": "excluded_paths must be a list of strings"}), 400
+    db.update_excluded_paths(project_id, excluded_paths)
+    return jsonify({"excluded_paths": excluded_paths})
 
 
 @app.route("/api/browse-folder", methods=["POST"])
@@ -262,11 +308,12 @@ def api_run_scan(project_id):
     compiled_rules = engine.load_rules(tmp_rules_path)
 
     ignore_map = {(i["file"], i["key"], i["rule"]): i["value_hash"] for i in db.list_ignores(project_id)}
+    excluded_paths = db.get_excluded_paths(project_id)
 
     try:
         report_entries, files_scanned, files_skipped = engine.scan_project(
             project["input_path"], project["output_path"], compiled_rules, ignore_map,
-            changed_files_only=changed_only,
+            changed_files_only=changed_only, excluded_paths=excluded_paths,
         )
     except engine.NotAGitRepoError as e:
         return jsonify({"error": str(e)}), 400

@@ -41,7 +41,8 @@ def init_db():
             input_path TEXT NOT NULL,
             output_path TEXT NOT NULL,
             rules_json TEXT NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            excluded_paths_json TEXT NOT NULL DEFAULT '[]'
         );
         CREATE TABLE IF NOT EXISTS scans (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,6 +69,13 @@ def init_db():
     existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ignored_findings)")}
     if "value_hash" not in existing_cols:
         conn.execute("ALTER TABLE ignored_findings ADD COLUMN value_hash TEXT")
+    # Migrate DBs created before excluded_paths_json existed (folder-
+    # filtering tree, Phase 2) - same reasoning, and the DEFAULT '[]'
+    # means every pre-existing project is unaffected: nothing excluded,
+    # identical to today's always-scan-everything behavior.
+    existing_project_cols = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}
+    if "excluded_paths_json" not in existing_project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN excluded_paths_json TEXT NOT NULL DEFAULT '[]'")
     conn.commit()
     conn.close()
 
@@ -86,11 +94,12 @@ def get_project(project_id):
     return dict(row) if row else None
 
 
-def create_project(name, input_path, output_path, rules_dict):
+def create_project(name, input_path, output_path, rules_dict, excluded_paths=None):
     conn = get_conn()
     cur = conn.execute(
-        "INSERT INTO projects (name, input_path, output_path, rules_json, created_at) VALUES (?, ?, ?, ?, ?)",
-        (name, input_path, output_path, json.dumps(rules_dict), datetime.now(timezone.utc).isoformat()),
+        "INSERT INTO projects (name, input_path, output_path, rules_json, created_at, excluded_paths_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (name, input_path, output_path, json.dumps(rules_dict), datetime.now(timezone.utc).isoformat(),
+         json.dumps(list(excluded_paths or []))),
     )
     conn.commit()
     project_id = cur.lastrowid
@@ -103,6 +112,24 @@ def update_project_rules(project_id, rules_dict):
     conn.execute("UPDATE projects SET rules_json = ? WHERE id = ?", (json.dumps(rules_dict), project_id))
     conn.commit()
     conn.close()
+
+
+def update_excluded_paths(project_id, excluded_paths):
+    """Replaces the project's folder-filter exclusion list wholesale (not
+    merged) - the caller (api_update_excluded_paths) always sends the FULL
+    current set from the tree UI, same convention as update_project_rules."""
+    conn = get_conn()
+    conn.execute("UPDATE projects SET excluded_paths_json = ? WHERE id = ?",
+                 (json.dumps(list(excluded_paths)), project_id))
+    conn.commit()
+    conn.close()
+
+
+def get_excluded_paths(project_id):
+    project = get_project(project_id)
+    if not project:
+        return []
+    return json.loads(project["excluded_paths_json"])
 
 
 def delete_project(project_id):
