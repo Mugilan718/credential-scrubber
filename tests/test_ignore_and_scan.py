@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import engine
+import db
 
 _RULES_PATH = Path(engine.__file__).resolve().parent / "rules_default.yaml"
 
@@ -137,3 +138,61 @@ def test_changed_files_only_raises_on_non_git_dir(tmp_path):
 
     with pytest.raises(engine.NotAGitRepoError):
         engine.scan_project(project, tmp_path / "out", _rules(), changed_files_only=True)
+
+
+# ---------------------------------------------------------------------
+# Ignore-safety (Phase 1): full db + engine round trip - ignoring suppresses
+# a finding on the NEXT scan, and "Restore redaction" (db.remove_ignore())
+# makes the NEXT scan after that redact it again. Exercises the exact same
+# ignore_map shape app.py's api_run_scan() builds from db.list_ignores(),
+# not just engine.check_ignore() in isolation.
+# ---------------------------------------------------------------------
+
+def _ignore_map_for(project_id):
+    return {(i["file"], i["key"], i["rule"]): i["value_hash"] for i in db.list_ignores(project_id)}
+
+
+def test_restore_redaction_makes_a_later_scan_redact_the_value_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "test_app.db")
+    db.init_db()
+
+    project = tmp_path / "project"
+    project.mkdir()
+    secret = "fake-Restorable-Secret-789"
+    (project / "app.properties").write_text(f'password = "{secret}"\n', encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    project_id = db.create_project("Test Project", str(project), str(output_dir), {})
+
+    # 1. First scan (nothing ignored yet) - the secret is redacted.
+    entries, _, _ = engine.scan_project(project, output_dir, _rules(), ignore_map=_ignore_map_for(project_id))
+    assert len(entries) == 1
+    sanitized_first = (output_dir / "app.properties").read_text(encoding="utf-8")
+    assert secret not in sanitized_first
+
+    # 2. Ignore it (as app.py's api_add_ignore does: hash the real value
+    # captured by this scan and store it against the (file, key, rule) triple).
+    finding = entries[0]
+    value_hash = engine.hash_value(finding["before"])
+    db.add_ignore(project_id, finding["file"], finding["key"], finding["rule"], value_hash)
+
+    # 3. Next scan - now suppressed, the real value is written to output.
+    entries2, _, _ = engine.scan_project(project, output_dir, _rules(), ignore_map=_ignore_map_for(project_id))
+    assert entries2 == []
+    sanitized_second = (output_dir / "app.properties").read_text(encoding="utf-8")
+    assert secret in sanitized_second, "ignored finding's real value is written once suppressed"
+
+    # 4. Restore it (the "Restore redaction" action - db.remove_ignore(),
+    # exactly what DELETE /api/projects/<id>/ignore/<ignore_id> calls).
+    [ig] = db.list_ignores(project_id)
+    db.remove_ignore(ig["id"])
+    assert db.list_ignores(project_id) == []
+
+    # 5. Next scan after restoring - redacted again, exactly like the very
+    # first scan, proving the restore isn't just removed from a list but
+    # actually changes scan behavior.
+    entries3, _, _ = engine.scan_project(project, output_dir, _rules(), ignore_map=_ignore_map_for(project_id))
+    assert len(entries3) == 1
+    sanitized_third = (output_dir / "app.properties").read_text(encoding="utf-8")
+    assert secret not in sanitized_third, "restored finding is redacted again on the next scan"
+

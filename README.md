@@ -262,9 +262,14 @@ YAML block-scalar body would not currently be detected.
   `.gitignore`-style path/pattern feature.** An ignored finding is
   tracked by content hash in the database, so if the underlying value
   later changes, the ignore is invalidated rather than silently masking
-  a different secret. There is no separate ignore-file/ignore-pattern
-  mechanism, and directory exclusion is a fixed, hardcoded list
-  (`.git`, `node_modules`, `__pycache__`, build/venv-style directories).
+  a different secret. Ignoring a finding requires an explicit
+  confirmation ("this will restore the original, unmasked value the
+  next time this project is scanned") before it takes effect, and can be
+  reversed at any time from the Ignored Findings view ("Restore
+  redaction") - the next scan after restoring redacts it again. There is
+  no separate ignore-file/ignore-pattern mechanism, and directory
+  exclusion is a fixed, hardcoded list (`.git`, `node_modules`,
+  `__pycache__`, build/venv-style directories).
 
 None of the above is a claim of absolute security. See
 [§8](#8-what-the-experiment-does-not-establish) and

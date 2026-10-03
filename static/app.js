@@ -371,6 +371,9 @@ function wireIgnoreButtons(container, entries) {
 }
 
 async function ignoreFinding(entry) {
+  if (!confirm("This will restore the original, unmasked value the next time this project is scanned. Only do this if you're certain this is NOT a real secret.")) {
+    return;
+  }
   try {
     await api(`/api/projects/${state.activeProjectId}/ignore`, {
       method: "POST",
@@ -420,7 +423,7 @@ async function loadIgnores(projectId) {
         <div class="result-rule">${escapeHtml(ig.rule)}</div>
         <div class="result-key" title="${tracked ? "Will re-flag for review if the value changes" : "No value on record \u2014 will always re-flag for review, since a change can't be detected"}">${tracked ? "Yes" : "No"}</div>
         <div class="result-line-no">${new Date(ig.created_at).toLocaleDateString()}</div>
-        <div><button class="btn-secondary btn-restore" data-id="${ig.id}" title="Restore this finding">${icon("undo", { size: 14 })}</button></div>
+        <div><button class="btn-secondary btn-restore" data-id="${ig.id}" title="Restore redaction — re-masks this value on the next scan">${icon("undo", { size: 14 })}</button></div>
       </div>`;
   });
   list.innerHTML = html;
