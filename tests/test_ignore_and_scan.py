@@ -260,3 +260,29 @@ def test_no_excluded_paths_behaves_exactly_as_before(tmp_path):
     entries, files_scanned, _ = engine.scan_project(project, output_dir, _rules())  # no excluded_paths at all
     assert files_scanned == 1
     assert len(entries) == 1
+
+
+# ---------------------------------------------------------------------
+# "Re-scan now" / "Scan again" parity (Phase 3): scan_project() always
+# reads fresh from disk, on a project's first scan or its Nth - there is
+# no cache to go stale. This is exactly the property the desktop app's
+# scanBtn relabeling documents rather than changes (see app.js's
+# updateScanButtonLabel() and README.md section 5).
+# ---------------------------------------------------------------------
+
+def test_rescanning_the_same_project_picks_up_an_on_disk_edit(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    secret_file = project / "app.properties"
+    secret_file.write_text('password = "fake-BeforeEdit-111"\n', encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    first_entries, _, _ = engine.scan_project(project, output_dir, _rules())
+    assert "fake-BeforeEdit-111" in first_entries[0]["before"]
+
+    # Edit the file on disk between the two scans, exactly as a user would
+    # between clicking "Run scan" and later clicking "Re-scan now".
+    secret_file.write_text('password = "fake-AfterEdit-222"\n', encoding="utf-8")
+
+    second_entries, _, _ = engine.scan_project(project, output_dir, _rules())
+    assert "fake-AfterEdit-222" in second_entries[0]["before"], "a later scan of the same project must read the current on-disk content, not a cached copy"

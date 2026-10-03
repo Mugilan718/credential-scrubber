@@ -2,6 +2,7 @@ const state = {
   projects: [],
   activeProjectId: null,
   activeScanId: null,
+  hasScanHistory: false,
 };
 
 const el = (id) => document.getElementById(id);
@@ -553,7 +554,7 @@ el("scanBtn").onclick = async () => {
     alert("Scan failed: " + e.message);
   } finally {
     btn.disabled = false;
-    btn.innerHTML = `${icon("play")} Run scan`;
+    updateScanButtonLabel();
   }
 };
 
@@ -756,8 +757,26 @@ function showToast(message, isError) {
 
 // ---------- History ----------
 
+/**
+ * "Scan again" convenience/labeling (Phase 3): scanBtn is - and always has
+ * been - a single action that reads fresh from disk every time it's
+ * clicked, whether this is a project's first scan or its fiftieth (see
+ * engine.scan_project()'s os.walk - there is no caching to invalidate).
+ * Relabeling it once a project already has scan history makes that
+ * "always re-reads" parity with the website's "Scan again" concept
+ * explicit rather than implied, without adding a second button that would
+ * do the exact same thing under a different label.
+ */
+function updateScanButtonLabel() {
+  const btn = el("scanBtn");
+  if (!btn || btn.disabled) return; // don't fight an in-progress "Scanning…" label
+  btn.innerHTML = state.hasScanHistory ? `${icon("play")} Re-scan now` : `${icon("play")} Run scan`;
+}
+
 async function loadScanHistory(projectId) {
   const scans = await api(`/api/projects/${projectId}/scans`);
+  state.hasScanHistory = scans.length > 0;
+  updateScanButtonLabel();
   const list = el("historyList");
   if (!scans.length) {
     list.innerHTML = `<div class="results-empty"><div class="results-empty-icon">${icon("clock", { size: 30 })}</div><p>No scans yet.</p></div>`;
