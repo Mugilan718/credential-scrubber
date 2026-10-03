@@ -214,10 +214,12 @@ directory (`%APPDATA%\CredentialScrubber` on Windows,
   literals** - that path relies on key-name and value-pattern matching
   only.
 - **Multiline concatenation detection** - Python's parenthesized
-  multi-string style, and Java/JavaScript/C#'s `+`-operator style (both
-  "trailing +" and "leading +"). **Go is not currently covered** by
-  multiline detection. JavaScript template literals spanning multiple
-  lines are not covered either.
+  multi-string style, and Java/JavaScript/C#/Go's `+`-operator style (both
+  "trailing +" and "leading +"). For Go, both `var name Type = "frag"` and
+  the short declaration `name := "frag"` are covered, and - unlike the
+  other three languages - a chain doesn't need a trailing `;` to be
+  recognized as complete, since Go conventionally omits it. JavaScript
+  template literals spanning multiple lines are **not** covered.
 
 **Supported languages/formats**, from `engine.py`'s extension mapping:
 

@@ -142,6 +142,88 @@ def test_java_plus_concatenation_masks_every_fragment():
     assert "5678secret" not in joined
 
 
+# Go's `var name Type = ...` (type AFTER the name) and `name := ...` (short
+# declaration) are both distinct from the `Type name = ...` / `var name = ...`
+# shapes the generic multiline-plus START regex was built for - covering
+# both declaration forms, in both leading-+ and trailing-+ styles. Two of
+# the four deliberately omit the trailing ';' (idiomatic, gofmt-style Go),
+# to confirm the Go-specific no-terminator-required path actually works and
+# this isn't just redacting the first fragment while silently leaving later
+# ones (the "looks redacted but isn't" bug class).
+
+def test_go_plus_concatenation_masks_every_fragment_var_trailing_with_semicolon():
+    rules = _rules()
+    lines = [
+        'var connString string = "fake-conn-A1b2" +\n',
+        '    "C3d4-secret";\n',
+    ]
+    entries = []
+    out_lines = engine.scan_multiline_plus(list(lines), rules, entries, "f.go", lang="go")
+    joined = "".join(out_lines)
+    assert "fake-conn-A1b2" not in joined
+    assert "C3d4-secret" not in joined
+    assert len(entries) == 2
+
+
+def test_go_plus_concatenation_masks_every_fragment_var_leading_no_semicolon():
+    rules = _rules()
+    lines = [
+        'var apiToken string = "fakeTok3n-X9z"\n',
+        '    + "Y8w7-Value"\n',
+    ]
+    entries = []
+    out_lines = engine.scan_multiline_plus(list(lines), rules, entries, "f.go", lang="go")
+    joined = "".join(out_lines)
+    assert "fakeTok3n-X9z" not in joined
+    assert "Y8w7-Value" not in joined
+    assert len(entries) == 2
+
+
+def test_go_plus_concatenation_masks_every_fragment_short_decl_trailing_no_semicolon():
+    rules = _rules()
+    lines = [
+        'dbPassword := "fakeP4ss-Qr5t" +\n',
+        '    "Uv6w-End"\n',
+    ]
+    entries = []
+    out_lines = engine.scan_multiline_plus(list(lines), rules, entries, "f.go", lang="go")
+    joined = "".join(out_lines)
+    assert "fakeP4ss-Qr5t" not in joined
+    assert "Uv6w-End" not in joined
+    assert len(entries) == 2
+
+
+def test_go_plus_concatenation_masks_every_fragment_short_decl_leading_with_semicolon():
+    rules = _rules()
+    lines = [
+        'secretKey := "fakeKey-Ab12"\n',
+        '    + "Cd34-Final";\n',
+    ]
+    entries = []
+    out_lines = engine.scan_multiline_plus(list(lines), rules, entries, "f.go", lang="go")
+    joined = "".join(out_lines)
+    assert "fakeKey-Ab12" not in joined
+    assert "Cd34-Final" not in joined
+    assert len(entries) == 2
+
+
+def test_go_plus_concatenation_without_lang_hint_is_not_terminated():
+    # Without lang="go" passed (require_terminator defaults to True), a
+    # Go-style chain with no ';' must NOT be redacted - guards against the
+    # relaxed EOF/no-terminator path leaking into other languages' default
+    # behavior.
+    rules = _rules()
+    lines = [
+        'apiKey := "fakeNoTerm123" +\n',
+        '    "456Value"\n',
+    ]
+    entries = []
+    out_lines = engine.scan_multiline_plus(list(lines), rules, entries, "f.go")
+    joined = "".join(out_lines)
+    assert "fakeNoTerm123" in joined  # left untouched - chain never "terminated"
+    assert entries == []
+
+
 # ---------------------------------------------------------------------
 # The core security invariant: if the engine reports a finding as
 # redacted, the original value must not remain anywhere in ITS OWN output

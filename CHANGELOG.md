@@ -6,7 +6,13 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Go added to multiline `+`-concatenation detection, covering both
+  `var name Type = "frag"` and the short declaration `name := "frag"`,
+  in both "leading +" and "trailing +" styles. Go chains don't require a
+  trailing `;` to be recognized as complete (unlike Java/JavaScript/C#),
+  since Go conventionally omits it.
 
 ## [2.0.0] - 2026-10-03
 

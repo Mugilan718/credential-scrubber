@@ -267,7 +267,7 @@ CODE_EXTENSIONS = {
 CONFIG_FILENAMES = {".env"}
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "target", "dist", "build", ".idea", ".vscode"}
 
-PLUS_CONCAT_LANGS = {"java", "javascript", "csharp"}
+PLUS_CONCAT_LANGS = {"java", "javascript", "csharp", "go"}
 
 
 def classify_file(path: Path):
@@ -744,6 +744,22 @@ _PLUS_CONT_LEADING = re.compile(r'^\s*\+\s*["\']([^"\']*)["\']\s*(;)?\s*$')
 # Continuation, "trailing +" style:      "frag" +      or      "frag";
 _PLUS_CONT_TRAILING = re.compile(r'^\s*["\']([^"\']*)["\']\s*(\+)?\s*(;)?\s*$')
 
+# Go's `var name Type = "frag"` puts the type AFTER the name, unlike
+# Java/C#'s `Type name = ...` - _PLUS_ASSIGN_START's "swallow everything
+# before the captured name" logic assumes the type comes first, so it
+# captures the type ("Type") instead of the name for this form. Needs its
+# own pattern. Same capture-group layout as _PLUS_ASSIGN_START (1: name,
+# 2: first fragment, 3: optional trailing '+') so scan_multiline_plus
+# doesn't need to care which one matched.
+_PLUS_ASSIGN_START_GO_VAR = re.compile(
+    r'^\s*var\s+(\w+)\s+[\w.\[\]*]+\s*=\s*["\']([^"\']*)["\']\s*(\+\s*)?$'
+)
+# Go's short variable declaration, `name := "frag"` - _PLUS_ASSIGN_START
+# requires a bare `=`, not `:=`.
+_PLUS_ASSIGN_START_GO_SHORT = re.compile(
+    r'^\s*(\w+)\s*:=\s*["\']([^"\']*)["\']\s*(\+\s*)?$'
+)
+
 
 def find_key_matches(name, rules):
     # camel_aware=True: `name` here is a source-code variable name (used by
@@ -841,7 +857,7 @@ def scan_multiline_python(lines, rules, report_entries, filename, ignore_map={},
     return lines
 
 
-def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}, placeholder_registry=None):
+def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}, placeholder_registry=None, lang=None):
     """
     Detect and redact string concatenation spanning multiple physical lines,
     in either style:
@@ -850,11 +866,20 @@ def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}, p
             "frag";                 + "frag";
     Only redacts if the chain is properly terminated with ';' - a chain that
     trails off without a terminator is left untouched rather than guessed at.
+
+    Exception: Go (lang="go") doesn't use semicolons by convention (they're
+    auto-inserted at end-of-line, and gofmt strips them) - for Go, a chain
+    that simply stops continuing (next line doesn't extend it) is ALSO
+    treated as complete, since requiring an explicit ';' would silently miss
+    idiomatic Go source that never has one.
     """
+    require_terminator = lang != "go"
     i = 0
     n = len(lines)
     while i < n:
-        m = _PLUS_ASSIGN_START.match(lines[i])
+        m = (_PLUS_ASSIGN_START.match(lines[i])
+             or _PLUS_ASSIGN_START_GO_VAR.match(lines[i])
+             or _PLUS_ASSIGN_START_GO_SHORT.match(lines[i]))
         if m:
             var_name = m.group(1)
             first_frag = m.group(2)
@@ -867,7 +892,11 @@ def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}, p
             if had_trailing_plus:
                 # "trailing +" style: continuation lines are plain fragments,
                 # each optionally followed by another '+' or a terminating ';'.
-                while j < n:
+                while True:
+                    if j >= n:
+                        if not require_terminator:
+                            terminated = True  # Go: chain ran to EOF, no ';' needed
+                        break
                     cont = _PLUS_CONT_TRAILING.match(lines[j])
                     if not cont:
                         break
@@ -877,14 +906,22 @@ def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}, p
                     if cont.group(3):  # ';' found - chain complete
                         terminated = True
                         break
-                    if not cont.group(2):  # no trailing '+' and no ';' - malformed, stop
+                    if not cont.group(2):  # no trailing '+' and no ';'
+                        if not require_terminator:
+                            terminated = True  # Go: statement just ends here
                         break
             elif j < n and _PLUS_CONT_LEADING.match(lines[j]):
                 # "leading +" style: continuation lines each start with '+',
                 # chain ends when a line terminates with ';'.
-                while j < n:
+                while True:
+                    if j >= n:
+                        if not require_terminator:
+                            terminated = True  # Go: chain ran to EOF, no ';' needed
+                        break
                     cont = _PLUS_CONT_LEADING.match(lines[j])
                     if not cont:
+                        if not require_terminator:
+                            terminated = True  # Go: chain ended, no ';' needed
                         break
                     fragments.append(cont.group(1))
                     frag_indices.append(j)
@@ -941,7 +978,7 @@ def process_file(src_path, rel_path, rules, report_entries, classification, igno
         if ext == ".py":
             lines = scan_multiline_python(lines, rules, report_entries, str(rel_path), ignore_map, placeholder_registry)
         if lang in PLUS_CONCAT_LANGS:
-            lines = scan_multiline_plus(lines, rules, report_entries, str(rel_path), ignore_map, placeholder_registry)
+            lines = scan_multiline_plus(lines, rules, report_entries, str(rel_path), ignore_map, placeholder_registry, lang)
 
         output_lines = []
         for i, l in enumerate(lines):
