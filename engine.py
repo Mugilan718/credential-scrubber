@@ -450,6 +450,19 @@ def is_placeholder(value, allowlist):
     return v in allowlist
 
 
+def _value_pattern_placeholder_check_text(m):
+    """The text an is_placeholder() check should use for a value_pattern
+    match: its first capturing group if the pattern defines one, or the
+    whole match otherwise. Currently only bearer_token's regex captures a
+    group - isolating the token from its literal "bearer " prefix, so a
+    placeholder allow-list entry for the token itself (e.g.
+    "your_bearer_token_here") is actually matched instead of being compared
+    against "bearer your_bearer_token_here" as a whole, which would never be
+    on the list. Every other value_pattern has no group, so m.lastindex is
+    None and this is identical to m.group(0) - unaffected."""
+    return m.group(m.lastindex) if m.lastindex else m.group(0)
+
+
 def shannon_entropy(s):
     if not s:
         return 0.0
@@ -637,14 +650,23 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
         report_entries.append(entry)
         return line[:value_start] + replacement + line[value_end:]
 
-    if is_placeholder(value, rules["placeholder_allowlist"]):
+    value_matched_name = None
+    # Defaults to the whole value (identical to the pre-existing behavior)
+    # unless the matched pattern captures a group (see
+    # _value_pattern_placeholder_check_text()'s docstring) - checked after
+    # the loop, not before, so it reflects whichever pattern (if any)
+    # actually matched.
+    placeholder_check_text = value
+    for name, pattern in rules["value_patterns"]:
+        m = pattern.search(value)
+        if m:
+            value_matched_name = name
+            placeholder_check_text = _value_pattern_placeholder_check_text(m)
+            break
+
+    if is_placeholder(placeholder_check_text, rules["placeholder_allowlist"]):
         return line
 
-    value_matched_name = None
-    for name, pattern in rules["value_patterns"]:
-        if pattern.search(value):
-            value_matched_name = name
-            break
     entropy_flag = looks_high_entropy(value)
 
     if value_matched_name or entropy_flag:
@@ -691,7 +713,7 @@ def redact_value_patterns_only(line, rules, report_entries, filename, line_no, i
             continue
         m = pattern.search(modified)
         if m:
-            if is_placeholder(m.group(0), rules["placeholder_allowlist"]):
+            if is_placeholder(_value_pattern_placeholder_check_text(m), rules["placeholder_allowlist"]):
                 continue
             before_val = m.group(0)
             reported_rule = f"{rule_prefix}:{name}" if rule_prefix else name
@@ -771,7 +793,7 @@ def redact_code_line(line, lang, rules, report_entries, filename, line_no, ignor
     for name, pattern in rules["value_patterns"]:
         m = pattern.search(modified)
         if m and not _already_redacted(m.group(0), placeholder_registry):
-            if is_placeholder(m.group(0), rules["placeholder_allowlist"]):
+            if is_placeholder(_value_pattern_placeholder_check_text(m), rules["placeholder_allowlist"]):
                 continue
             before_val = m.group(0)
             suppress, changed = check_ignore(ignore_map, filename, None, name, before_val)

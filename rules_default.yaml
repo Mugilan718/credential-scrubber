@@ -76,7 +76,13 @@ value_patterns:
     regex: "\\beyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\b"
 
   - name: "bearer_token"
-    regex: "(?i)bearer\\s+[A-Za-z0-9\\-._~+/]+=*"
+    # Group 1 captures just the token (not the literal "bearer" word) so
+    # is_placeholder() can be checked against the token alone - see
+    # engine.py's _value_pattern_placeholder_check_text(). The {20,} minimum
+    # keeps this from matching ordinary prose like "a bearer token in the
+    # header" (every word there is well under 20 characters); real bearer
+    # tokens (JWTs, API keys, session tokens) are comfortably longer.
+    regex: "(?i)bearer\\s+([A-Za-z0-9\\-._~+/]{20,}=*)"
 
   - name: "private_key_block"
     regex: "-----BEGIN [A-Z ]*PRIVATE KEY-----[\\s\\S]+?-----END [A-Z ]*PRIVATE KEY-----"
@@ -133,3 +139,4 @@ placeholder_allowlist:
   - "todo"
   - "fixme"
   - "insert_secret_here"
+  - "your_bearer_token_here"
