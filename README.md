@@ -252,15 +252,22 @@ separately from the single-line value-pattern match above: it matches
 `-----BEGIN`/`-----END ... PRIVATE KEY-----` markers across physical
 lines (OPENSSH/RSA/EC/generic headers, CRLF line endings), masking the
 body between them while leaving the harmless BEGIN/END marker lines
-themselves intact and the file's line count unchanged - a key with no
-`END` line is masked all the way to the end of the file rather than
-leaving part of it exposed. A `-----BEGIN CERTIFICATE-----` block is
-never touched (a certificate is public material, not a secret). This
-only applies to unrecognized file types - a key embedded as a YAML
-block-scalar value, or split across `.properties` backslash-continuation
-lines, in a file type the full detection above already covers is **not**
-caught by this or any other existing mechanism; see the YAML
-block-scalar limitation below.
+themselves intact and the file's line count unchanged. A block only
+starts at a line that consists of *just* the BEGIN marker (leading
+whitespace and one optional quote character allowed, nothing else) -
+never matched in the middle of a sentence, so a document that merely
+mentions the marker is left untouched. When no `END` line follows,
+only the consecutive lines that still look like key material (base64
+body text, or a `Proc-Type:`/`DEK-Info:` encryption-header line) are
+masked, stopping at the first line that doesn't - so a truncated key is
+fully masked, but a marker mentioned in passing and then followed by
+ordinary prose doesn't lose that prose. A `-----BEGIN CERTIFICATE-----`
+block is never touched (a certificate is public material, not a
+secret). This only applies to unrecognized file types - a key embedded
+as a YAML block-scalar value, or split across `.properties`
+backslash-continuation lines, in a file type the full detection above
+already covers is **not** caught by this or any other existing
+mechanism; see the YAML block-scalar limitation below.
 
 **JSON/XML/.config handling is regex/line-based**, matching
 `"key": value` / `<add key=".." value=".."/>` / `<Key>value</Key>`

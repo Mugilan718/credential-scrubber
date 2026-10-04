@@ -23,13 +23,19 @@ follows [Semantic Versioning](https://semver.org/).
 - A real, multi-line private-key block (`id_rsa`, `server.pem`, or one
   pasted into any other unrecognized file type) is detected and masked
   too - matching `-----BEGIN`/`-----END ... PRIVATE KEY-----` markers
-  across lines (OPENSSH/RSA/EC/generic headers, CRLF line endings, and
-  a key with no `END` line masked to the end of the file), while a
-  `-----BEGIN CERTIFICATE-----` block is left untouched (a certificate
-  isn't a secret). This is specific to unrecognized file types - a key
-  embedded as a YAML block-scalar value or across `.properties`
-  backslash-continuation lines in a *recognized* config file is **not**
-  caught by this or any other existing detection; see the FAQ.
+  across lines (OPENSSH/RSA/EC/generic headers, CRLF line endings). A
+  block only starts at a line that's *just* the BEGIN marker (leading
+  whitespace/one optional quote character allowed, never mid-sentence),
+  and when no `END` line follows, only the consecutive lines that still
+  look like key material (base64 body text, or a `Proc-Type:`/
+  `DEK-Info:` header) are masked, stopping at the first line that
+  doesn't - so a document that merely mentions the marker keeps the
+  rest of its content. A `-----BEGIN CERTIFICATE-----` block is left
+  untouched (a certificate isn't a secret). This is specific to
+  unrecognized file types - a key embedded as a YAML block-scalar value
+  or across `.properties` backslash-continuation lines in a
+  *recognized* config file is **not** caught by this or any other
+  existing detection; see the FAQ.
 - The preview and the Apply confirmation now report "N files were
   copied without being checked," grouped by reason (unsupported binary
   type / over the 2MB size limit) with an expandable list - a notice,
