@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.0.1] - 2026-10-04
+
 ### Added
 
 - Go added to multiline `+`-concatenation detection, covering both
@@ -13,6 +17,20 @@ follows [Semantic Versioning](https://semver.org/).
   in both "leading +" and "trailing +" styles. Go chains don't require a
   trailing `;` to be recognized as complete (unlike Java/JavaScript/C#),
   since Go conventionally omits it.
+- "Only" button in the folder-filter tree - a one-click "check just
+  this folder, uncheck everything else" action on each folder row.
+
+### Fixed
+
+- The folder-filter tree silently ignored selections: a JS crash in
+  `findNodeByPath` (it recursed into a file node's `.children`, which
+  only folders have) meant checking or unchecking anything but the very
+  first file/folder in tree order never actually updated what would be
+  saved, even though the checkbox itself appeared to toggle normally -
+  so exclusions were never saved.
+- Long keys, file paths, and rule names in the results tables (and the
+  "Reveal original values" modal) no longer truncate with an ellipsis -
+  they wrap instead.
 
 ## [2.0.0] - 2026-10-03
 
@@ -104,5 +122,6 @@ Security-relevant fixes from an internal audit (tracked as F1-F4):
   `POST /api/projects/<id>/apply` (see "Added" above). Anything calling
   the old route directly needs to switch to the two-step flow.
 
-[Unreleased]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Mugilan718/credential-scrubber/compare/v1.0.0...v2.0.0
