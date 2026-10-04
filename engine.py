@@ -269,6 +269,55 @@ SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "target", "
 
 PLUS_CONCAT_LANGS = {"java", "javascript", "csharp", "go"}
 
+# ------------------------------------------------------------------
+# Unrecognized-file fallback: a file whose extension classify_file()
+# doesn't recognize (a lockfile, a Dockerfile, a README, a .rb script, ...)
+# used to be copied through by _walk_and_classify() completely untouched -
+# zero scanning. These three constants scope a narrower, high-confidence-
+# only pass over such files instead (see process_fallback_file()).
+# ------------------------------------------------------------------
+
+# Extensions never attempted as text, regardless of content - checked
+# before the null-byte sniff below so an image/archive/binary whose first
+# 8KB happens to be all-ASCII (e.g. a tiny icon) isn't misread as text.
+FALLBACK_BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".webp", ".tiff",
+    ".pdf", ".zip", ".tar", ".gz", ".tgz", ".7z", ".rar", ".bz2", ".xz",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".class", ".jar", ".o", ".a", ".lib",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf",
+    ".mp3", ".mp4", ".avi", ".mov", ".wav", ".flac", ".ogg", ".webm",
+    ".db", ".sqlite", ".sqlite3", ".pyc",
+}
+
+# A file over this size is copied through untouched rather than fully read
+# into memory for a fallback pass that - unlike the config/code paths - was
+# never asked for by the file's own type.
+FALLBACK_MAX_BYTES = 2 * 1024 * 1024
+
+# Deliberately narrower than the full value_patterns list: measured against
+# a realistic project (lockfiles, docs, READMEs) and found that the broader
+# patterns (ipv4_address, ipv6_address, generic_url, email_address,
+# bearer_token) are almost entirely false positives on unrecognized file
+# types - version numbers, documentation IP ranges, contact emails, and
+# (for bearer_token) ordinary prose. These seven are the shapes specific
+# enough to real secrets that they're worth flagging even on a file type
+# this tool doesn't otherwise understand.
+FALLBACK_VALUE_PATTERN_NAMES = {
+    "aws_access_key_id",
+    "aws_secret_key_assignment",
+    "github_token",
+    "slack_token",
+    "jwt_token",
+    "private_key_block",
+    "url_with_credentials",
+}
+
+# Prefixes a fallback-sourced finding's "rule" field (e.g.
+# "fallback:aws_access_key_id") so it's distinguishable in the report/preview
+# from the same pattern name firing on a recognized config/code file, and so
+# an ignore recorded against one doesn't silently suppress the other.
+FALLBACK_RULE_PREFIX = "fallback"
+
 
 def classify_file(path: Path):
     if path.name in CONFIG_FILENAMES or path.name.startswith(".env."):
@@ -615,7 +664,21 @@ def redact_config_line(line, rules, report_entries, filename, line_no, ignore_ma
     return line
 
 
-def redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map={}, placeholder_registry=None):
+def redact_value_patterns_only(line, rules, report_entries, filename, line_no, ignore_map={}, placeholder_registry=None, allowed_names=None, rule_prefix=None):
+    """`allowed_names` (optional): restrict matching to only these
+    value_pattern names (by their rules_default.yaml "name") instead of all
+    of them - used by process_fallback_file() to scope the unrecognized-file
+    fallback to a high-confidence subset. None (the default) matches every
+    value_pattern, exactly as before this parameter existed.
+
+    `rule_prefix` (optional): prefixed onto the reported "rule" field (e.g.
+    "fallback:aws_access_key_id") so a fallback-sourced finding is
+    distinguishable from the same pattern firing on a recognized
+    config/code file - including for check_ignore(), so ignoring one never
+    silently suppresses the other. None (the default) reports the bare
+    pattern name, exactly as before this parameter existed. Never affects
+    category_for_value_pattern() lookups, which stay keyed on the bare name.
+    """
     modified = line
     # No structural shape to test here (unlike redact_config_line's
     # _KV_XML_* patterns) - a value_pattern match can land anywhere in the
@@ -624,12 +687,15 @@ def redact_value_patterns_only(line, rules, report_entries, filename, line_no, i
     # MASK-mode output are unaffected either way.
     is_xml = Path(filename).suffix.lower() in XML_EXTENSIONS
     for name, pattern in rules["value_patterns"]:
+        if allowed_names is not None and name not in allowed_names:
+            continue
         m = pattern.search(modified)
         if m:
             if is_placeholder(m.group(0), rules["placeholder_allowlist"]):
                 continue
             before_val = m.group(0)
-            suppress, changed = check_ignore(ignore_map, filename, None, name, before_val)
+            reported_rule = f"{rule_prefix}:{name}" if rule_prefix else name
+            suppress, changed = check_ignore(ignore_map, filename, None, reported_rule, before_val)
             if suppress:
                 continue
             if placeholder_registry is not None:
@@ -647,7 +713,7 @@ def redact_value_patterns_only(line, rules, report_entries, filename, line_no, i
             else:
                 after_val = MASK
                 modified = pattern.sub(MASK, modified)
-            entry = {"file": filename, "line": line_no, "key": None, "rule": name,
+            entry = {"file": filename, "line": line_no, "key": None, "rule": reported_rule,
                       "before": before_val, "after": after_val}
             if changed:
                 entry["previously_ignored_value_changed"] = True
@@ -956,6 +1022,64 @@ def scan_multiline_plus(lines, rules, report_entries, filename, ignore_map={}, p
     return lines
 
 
+def _looks_binary(src_path):
+    """True if `src_path` should be treated as binary and never read as
+    text: a known binary extension, or (for anything else) a null byte
+    anywhere in its first 8KB - the same heuristic git and most text
+    editors use, since a null byte essentially never appears in genuine
+    text content but is common in binary formats this tool doesn't already
+    special-case by extension."""
+    if src_path.suffix.lower() in FALLBACK_BINARY_EXTENSIONS:
+        return True
+    try:
+        with open(src_path, "rb") as f:
+            chunk = f.read(8192)
+    except OSError:
+        return True
+    return b"\x00" in chunk
+
+
+def fallback_eligibility(src_path):
+    """Whether an unrecognized-extension file (classify_file() returned
+    None) is eligible for the value-pattern fallback. Returns None if
+    eligible, or a reason string ("oversize"/"binary") if not - the same
+    reason string is reused to group the "files copied without being
+    checked" breakdown, so this is the single source of truth for both
+    decisions."""
+    try:
+        size = src_path.stat().st_size
+    except OSError:
+        return "binary"
+    if size > FALLBACK_MAX_BYTES:
+        return "oversize"
+    if _looks_binary(src_path):
+        return "binary"
+    return None
+
+
+def process_fallback_file(src_path, rel_path, rules, report_entries, ignore_map={}, placeholder_registry=None):
+    """Scans a file classify_file() doesn't recognize, restricted to the
+    high-confidence FALLBACK_VALUE_PATTERN_NAMES subset (see its docstring)
+    - the asymmetric middle ground between the config/code paths' full
+    detection and copying the file through completely untouched. Caller is
+    responsible for fallback_eligibility() having already returned None for
+    this file."""
+    try:
+        with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+    except Exception as e:
+        return None, f"Could not read file: {e}"
+
+    output_lines = [
+        redact_value_patterns_only(
+            l, rules, report_entries, str(rel_path), i + 1, ignore_map, placeholder_registry,
+            allowed_names=FALLBACK_VALUE_PATTERN_NAMES, rule_prefix=FALLBACK_RULE_PREFIX,
+        )
+        for i, l in enumerate(lines)
+    ]
+    return "".join(output_lines), None
+
+
 def process_file(src_path, rel_path, rules, report_entries, classification, ignore_map={}, placeholder_registry=None):
     try:
         with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -1064,13 +1188,22 @@ def _walk_and_classify(input_dir, rules, ignore_map, changed_files_only, placeho
     (stage_project()/apply_staged_project()) - two call sites can never
     drift apart on what counts as "skipped" if there's only one walk.
 
-    Returns (report_entries, files_scanned, files_skipped, staged_files).
+    Returns (report_entries, files_scanned, files_skipped, staged_files,
+    unscanned_files).
     `staged_files` is a list of {"rel_path": str, "content": str|None,
     "src_path": str|None} - exactly one of content/src_path is set per
-    entry: `content` for a classified (config/code) file whose sanitized
-    text was computed here; `src_path` for a copy-through file (no
-    classification, or unreadable), applied later via shutil.copy2 so an
-    unreadable/binary file is never fully loaded into memory here.
+    entry: `content` for a classified (config/code) file, or an
+    unrecognized-extension file the fallback scanned, whose sanitized text
+    was computed here; `src_path` for a copy-through file (no
+    classification and fallback-ineligible, or unreadable), applied later
+    via shutil.copy2 so an unreadable/binary file is never fully loaded
+    into memory here.
+
+    `unscanned_files` is a list of {"rel_path": str, "reason": str} for
+    every file that was copied through with zero scanning of any kind -
+    "binary" or "oversize" (see fallback_eligibility()) - distinct from
+    `files_skipped`, which is for genuine read/symlink problems, not a
+    file that was deliberately left unscanned by design.
     """
     input_dir = Path(input_dir).resolve()
 
@@ -1088,6 +1221,7 @@ def _walk_and_classify(input_dir, rules, ignore_map, changed_files_only, placeho
     files_scanned = 0
     files_skipped = []
     staged_files = []
+    unscanned_files = []
 
     # One registry for this whole call, never returned or persisted - see
     # PlaceholderRegistry's docstring. None when placeholder_mode is off,
@@ -1146,9 +1280,20 @@ def _walk_and_classify(input_dir, rules, ignore_map, changed_files_only, placeho
                 staged_files.append({"rel_path": str(rel_path), "content": content, "src_path": None})
                 files_scanned += 1
             else:
-                staged_files.append({"rel_path": str(rel_path), "content": None, "src_path": str(src_path)})
+                reason = fallback_eligibility(src_path)
+                if reason is not None:
+                    unscanned_files.append({"rel_path": str(rel_path), "reason": reason})
+                    staged_files.append({"rel_path": str(rel_path), "content": None, "src_path": str(src_path)})
+                    continue
+                content, error = process_fallback_file(src_path, rel_path, rules, report_entries, ignore_map, placeholder_registry)
+                if error:
+                    files_skipped.append(str(rel_path))
+                    staged_files.append({"rel_path": str(rel_path), "content": None, "src_path": str(src_path)})
+                    continue
+                staged_files.append({"rel_path": str(rel_path), "content": content, "src_path": None})
+                files_scanned += 1
 
-    return report_entries, files_scanned, files_skipped, staged_files
+    return report_entries, files_scanned, files_skipped, staged_files, unscanned_files
 
 
 def find_newly_unredacted_ignores(entries_without_ignores, entries_with_ignores):
@@ -1196,27 +1341,27 @@ def stage_project(input_dir, output_dir, rules, ignore_map={}, changed_files_onl
     same thing here.
 
     Returns (report_entries, files_scanned, files_skipped, staged_files,
-    newly_unredacted) - see _walk_and_classify()'s docstring for the
-    staged_files shape, and find_newly_unredacted_ignores()'s for
-    newly_unredacted's.
+    newly_unredacted, unscanned_files) - see _walk_and_classify()'s
+    docstring for the staged_files/unscanned_files shapes, and
+    find_newly_unredacted_ignores()'s for newly_unredacted's.
     """
     input_dir = Path(input_dir).resolve()
 
     if not input_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
 
-    report_entries, files_scanned, files_skipped, staged_files = _walk_and_classify(
+    report_entries, files_scanned, files_skipped, staged_files, unscanned_files = _walk_and_classify(
         input_dir, rules, ignore_map, changed_files_only, placeholder_mode, excluded_paths
     )
 
     newly_unredacted = []
     if ignore_map:
-        entries_without_ignores, _, _, _ = _walk_and_classify(
+        entries_without_ignores, _, _, _, _ = _walk_and_classify(
             input_dir, rules, {}, changed_files_only, placeholder_mode, excluded_paths
         )
         newly_unredacted = find_newly_unredacted_ignores(entries_without_ignores, report_entries)
 
-    return report_entries, files_scanned, files_skipped, staged_files, newly_unredacted
+    return report_entries, files_scanned, files_skipped, staged_files, newly_unredacted, unscanned_files
 
 
 def apply_staged_project(output_dir, staged_files):
@@ -1272,7 +1417,7 @@ def scan_project(input_dir, output_dir, rules, ignore_map={}, changed_files_only
     if not input_dir_resolved.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir_resolved}")
 
-    report_entries, files_scanned, files_skipped, staged_files = _walk_and_classify(
+    report_entries, files_scanned, files_skipped, staged_files, _unscanned_files = _walk_and_classify(
         input_dir_resolved, rules, ignore_map, changed_files_only, placeholder_mode, excluded_paths
     )
     apply_staged_project(output_dir, staged_files)

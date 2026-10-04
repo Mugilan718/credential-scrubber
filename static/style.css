@@ -985,6 +985,47 @@ body {
 .sensitive-warning strong { color: var(--danger); }
 .sensitive-warning p { margin: 4px 0 0 0; color: var(--ink-soft); }
 
+/* A notice, not a warning - unlike .sensitive-warning, nothing here implies
+   a real secret is at risk, just files the scan didn't look at at all. */
+.unscanned-files-notice {
+  background: var(--paper-raised);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.unscanned-files-notice summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.unscanned-files-notice summary::marker {
+  color: var(--slate);
+}
+
+.unscanned-files-list {
+  margin: var(--space-3) 0 0 0;
+  padding-left: var(--space-6);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.unscanned-files-list li {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.unscanned-files-list .unscanned-reason {
+  color: var(--slate);
+  font-family: var(--sans);
+}
+
 /* ---------- Redaction stamp animation ---------- */
 
 @keyframes stamp-down {

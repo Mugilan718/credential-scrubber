@@ -10,6 +10,10 @@ const state = {
   // api_apply_scan - the server is what actually enforces it; this just
   // drives whether "Apply to output folder" is shown.
   previewPending: false,
+  // The most recent preview's "copied without being checked" list (see
+  // renderUnscannedFilesNotice()) - read by the Apply confirmation so it can
+  // name the count without a second round-trip to the server.
+  unscannedFiles: [],
 };
 
 const el = (id) => document.getElementById(id);
@@ -590,8 +594,10 @@ el("scanBtn").onclick = async () => {
       body: JSON.stringify({ changed_only: changedOnly }),
     });
     state.previewPending = true;
+    state.unscannedFiles = result.unscanned_files || [];
     renderScanSummary(result);
     renderNewlyUnredactedWarning(result.newly_unredacted);
+    renderUnscannedFilesNotice(result.unscanned_files);
     renderReportEntries(result.entries, true);
     el("resultsLoading").classList.add("hidden");
     updateApplyButtonVisibility();
@@ -613,6 +619,14 @@ el("scanBtn").onclick = async () => {
 // happened, so the 409 path is a backstop, not the normal way this is
 // discovered.
 el("applyBtn").onclick = async () => {
+  if (state.unscannedFiles.length) {
+    const word = state.unscannedFiles.length === 1 ? "file" : "files";
+    const proceed = confirm(
+      `${state.unscannedFiles.length} ${word} will be copied to the output folder without being checked ` +
+      `(unsupported binary type or over the fallback-scan size limit) - see the breakdown above. Apply anyway?`
+    );
+    if (!proceed) return;
+  }
   const btn = el("applyBtn");
   btn.disabled = true;
   btn.innerHTML = `${icon("spinner", { class: "spin" })} Applying&hellip;`;
@@ -658,9 +672,12 @@ function invalidatePreviewClientSide() {
   if (!state.previewPending) return;
   state.previewPending = false;
   updateApplyButtonVisibility();
-  // The stale preview's "would be written unredacted" list is no longer
-  // trustworthy either - a fresh preview will recompute and re-show it.
+  // The stale preview's "would be written unredacted" list, and its
+  // unscanned-files breakdown, are no longer trustworthy either - a fresh
+  // preview will recompute and re-show both.
   el("newlyUnredactedWarning").classList.add("hidden");
+  el("unscannedFilesNotice").classList.add("hidden");
+  state.unscannedFiles = [];
   const note = el("previewStaleNote");
   note.textContent = "Your change means this preview no longer reflects what would be written — click “Re-scan now” for a fresh one before applying.";
   note.classList.remove("hidden");
@@ -678,6 +695,37 @@ function renderNewlyUnredactedWarning(newlyUnredacted) {
   ).join("");
   const word = newlyUnredacted.length === 1 ? "finding" : "findings";
   box.innerHTML = `<strong>${icon("alert")} ${newlyUnredacted.length} previously-ignored ${word} will be written UNREDACTED if you apply this:</strong><ul class="newly-unredacted-list">${rows}</ul>`;
+  box.classList.remove("hidden");
+}
+
+const UNSCANNED_REASON_LABELS = {
+  binary: "unsupported binary file type",
+  oversize: "over the 2 MB fallback-scan size limit",
+};
+
+/**
+ * Files copied through with zero scanning of any kind (see
+ * engine.fallback_eligibility()) - not findings, not a problem, just the
+ * boundary of what this tool can read as text. A notice, not a blocker:
+ * rendered as a collapsed <details> so it's visible but out of the way.
+ */
+function renderUnscannedFilesNotice(unscannedFiles) {
+  const box = el("unscannedFilesNotice");
+  if (!unscannedFiles || !unscannedFiles.length) {
+    box.classList.add("hidden");
+    el("unscannedFilesList").innerHTML = "";
+    return;
+  }
+  const byReason = {};
+  unscannedFiles.forEach((f) => {
+    (byReason[f.reason] = byReason[f.reason] || []).push(f.rel_path);
+  });
+  const word = unscannedFiles.length === 1 ? "file was" : "files were";
+  el("unscannedFilesSummary").textContent = `${unscannedFiles.length} ${word} copied without being checked`;
+  el("unscannedFilesList").innerHTML = Object.entries(byReason).map(([reason, paths]) => {
+    const label = UNSCANNED_REASON_LABELS[reason] || reason;
+    return paths.map((p) => `<li>${escapeHtml(p)} <span class="unscanned-reason">(${escapeHtml(label)})</span></li>`).join("");
+  }).join("");
   box.classList.remove("hidden");
 }
 

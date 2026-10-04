@@ -339,7 +339,7 @@ def api_preview_scan(project_id):
     excluded_paths = db.get_excluded_paths(project_id)
 
     try:
-        report_entries, files_scanned, files_skipped, staged_files, newly_unredacted = engine.stage_project(
+        report_entries, files_scanned, files_skipped, staged_files, newly_unredacted, unscanned_files = engine.stage_project(
             project["input_path"], project["output_path"], compiled_rules, ignore_map,
             changed_files_only=changed_only, excluded_paths=excluded_paths,
         )
@@ -355,6 +355,7 @@ def api_preview_scan(project_id):
         "report_entries": report_entries,
         "files_scanned": files_scanned,
         "files_skipped": files_skipped,
+        "unscanned_files": unscanned_files,
         "changed_only": changed_only,
         "rules_json": project["rules_json"],
         "ignore_map": ignore_map,
@@ -367,6 +368,7 @@ def api_preview_scan(project_id):
         "total_redactions": len(report_entries),
         "entries": strip_sensitive(report_entries),
         "newly_unredacted": newly_unredacted,
+        "unscanned_files": unscanned_files,
         "output_path": project["output_path"],
         "changed_only": changed_only,
         "partial_output": changed_only,
@@ -417,6 +419,7 @@ def api_apply_scan(project_id):
         "scan_id": scan_id,
         "files_scanned": staged["files_scanned"],
         "files_skipped": staged["files_skipped"],
+        "unscanned_files": staged["unscanned_files"],
         "total_redactions": len(staged["report_entries"]),
         "output_path": project["output_path"],
         "changed_only": staged["changed_only"],

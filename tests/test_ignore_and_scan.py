@@ -83,7 +83,7 @@ def test_scan_project_redacts_into_output_dir(tmp_path):
     assert len(entries) == 1
 
 
-def test_unclassified_extension_is_copied_through_untouched(tmp_path):
+def test_unclassified_extension_plain_password_is_not_redacted(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     (project / "notes.txt").write_text('password = "fake-Sup3rSecret!"\n', encoding="utf-8")
@@ -91,13 +91,20 @@ def test_unclassified_extension_is_copied_through_untouched(tmp_path):
     output_dir = tmp_path / "out"
     entries, files_scanned, _ = engine.scan_project(project, output_dir, _rules())
 
-    # .txt isn't a CONFIG_EXTENSIONS/CODE_EXTENSIONS member, but
-    # process_file's fallback path (redact_value_patterns_only) still runs
-    # for it via classify_file() returning None -> shutil.copy2 (no scan at
-    # all) - confirm today's actual behavior rather than assume it.
+    # .txt isn't a CONFIG_EXTENSIONS/CODE_EXTENSIONS member, so classify_file()
+    # returns None - but it IS scanned by the unrecognized-file fallback
+    # (process_fallback_file()), restricted to FALLBACK_VALUE_PATTERN_NAMES.
+    # A plain "key = value" assignment has no key-name awareness outside a
+    # recognized config/code file, and this value doesn't match any of the
+    # high-confidence value shapes in the fallback subset - so it passes
+    # through unredacted. This is a documented limit, not a bug: the
+    # fallback only catches credential-shaped VALUES (AWS keys, GitHub/Slack
+    # tokens, JWTs, private-key blocks, URLs with embedded credentials), not
+    # "looks like a secret because of its key name."
     copied = (output_dir / "notes.txt").read_text(encoding="utf-8")
     assert copied == 'password = "fake-Sup3rSecret!"\n'
-    assert files_scanned == 0
+    assert entries == []
+    assert files_scanned == 1
 
 
 # ---------------------------------------------------------------------
@@ -299,7 +306,7 @@ def test_stage_project_writes_nothing_to_disk(tmp_path):
     (project / "app.properties").write_text('password = "fake-StageOnly-111"\n', encoding="utf-8")
     output_dir = tmp_path / "out"
 
-    entries, files_scanned, files_skipped, staged_files, newly_unredacted = engine.stage_project(
+    entries, files_scanned, files_skipped, staged_files, newly_unredacted, unscanned_files = engine.stage_project(
         project, output_dir, _rules()
     )
 
@@ -320,7 +327,7 @@ def test_apply_staged_project_then_matches_what_scan_project_would_have_written(
     staged_output = tmp_path / "staged_out"
     direct_output = tmp_path / "direct_out"
 
-    _, _, _, staged_files, _ = engine.stage_project(project, staged_output, _rules())
+    _, _, _, staged_files, _, _ = engine.stage_project(project, staged_output, _rules())
     engine.apply_staged_project(staged_output, staged_files)
     engine.scan_project(project, direct_output, _rules())
 
@@ -342,7 +349,7 @@ def test_preview_flags_an_unchanged_ignored_value_as_newly_unredacted(tmp_path):
     value_hash = engine.hash_value(secret)
     ignore_map = {("app.properties", "password", "key_name_match"): value_hash}
 
-    entries, _, _, staged_files, newly_unredacted = engine.stage_project(
+    entries, _, _, staged_files, newly_unredacted, _ = engine.stage_project(
         project, output_dir, _rules(), ignore_map=ignore_map
     )
 
@@ -360,7 +367,7 @@ def test_preview_does_not_flag_an_ignored_value_that_changed_since_it_was_ignore
     stale_hash = engine.hash_value("fake-OldValue-444")  # hash of the OLD value, not the current one
     ignore_map = {("app.properties", "password", "key_name_match"): stale_hash}
 
-    entries, _, _, staged_files, newly_unredacted = engine.stage_project(
+    entries, _, _, staged_files, newly_unredacted, _ = engine.stage_project(
         project, output_dir, _rules(), ignore_map=ignore_map
     )
 
@@ -375,7 +382,7 @@ def test_preview_with_no_ignores_reports_nothing_newly_unredacted(tmp_path):
     (project / "app.properties").write_text('password = "fake-NoIgnores-555"\n', encoding="utf-8")
     output_dir = tmp_path / "out"
 
-    _, _, _, _, newly_unredacted = engine.stage_project(project, output_dir, _rules())  # no ignore_map at all
+    _, _, _, _, newly_unredacted, _ = engine.stage_project(project, output_dir, _rules())  # no ignore_map at all
     assert newly_unredacted == []
 
 
@@ -390,9 +397,9 @@ def test_changing_an_ignore_between_two_previews_changes_the_newly_unredacted_re
     (project / "app.properties").write_text(f'password = {secret}\n', encoding="utf-8")  # unquoted - see note above
     output_dir = tmp_path / "out"
 
-    _, _, _, _, newly_unredacted_before = engine.stage_project(project, output_dir, _rules(), ignore_map={})
+    _, _, _, _, newly_unredacted_before, _ = engine.stage_project(project, output_dir, _rules(), ignore_map={})
     assert newly_unredacted_before == []
 
     ignore_map = {("app.properties", "password", "key_name_match"): engine.hash_value(secret)}
-    _, _, _, _, newly_unredacted_after = engine.stage_project(project, output_dir, _rules(), ignore_map=ignore_map)
+    _, _, _, _, newly_unredacted_after, _ = engine.stage_project(project, output_dir, _rules(), ignore_map=ignore_map)
     assert newly_unredacted_after == [{"file": "app.properties", "key": "password", "rule": "key_name_match"}]
