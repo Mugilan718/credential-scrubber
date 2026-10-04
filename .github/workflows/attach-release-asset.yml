@@ -1,0 +1,84 @@
+name: Attach release asset (no rebuild)
+
+# Manual only. Attaches an already-built, already smoke-tested exe
+# (pulled from a prior "Build and smoke-test exe" run's artifact) to an
+# existing GitHub Release, without rebuilding anything - for the case
+# where a release was published but the asset upload failed/was skipped
+# or uploaded under the wrong name. Never builds, never touches a tag.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Workflow run ID to pull the CredentialScrubber-exe artifact from"
+        required: true
+        default: "37200917284"
+      tag:
+        description: "Release tag to attach the asset to"
+        required: true
+        default: "v2.1.0"
+      expected_sha256:
+        description: "Expected SHA-256 of CredentialScrubber.exe - upload is refused on any mismatch"
+        required: true
+        default: "35ad869bb76a48b3cdc3134223345efb79ce0b0162b8e513cd6539dc8f2377a6"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  attach-asset:
+    runs-on: ubuntu-latest
+    env:
+      # Every input lands in an env var here, never interpolated directly
+      # into a run: shell command - see each step below.
+      RUN_ID: ${{ inputs.run_id }}
+      TAG: ${{ inputs.tag }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download the CredentialScrubber-exe artifact from the specified run
+        uses: actions/download-artifact@v4
+        with:
+          name: CredentialScrubber-exe
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+
+      - name: Verify the downloaded artifact's SHA-256 matches expected_sha256
+        shell: bash
+        run: |
+          actual_sha256=$(sha256sum CredentialScrubber.exe | awk '{print $1}')
+          echo "Artifact SHA-256: $actual_sha256"
+          echo "Expected:         $EXPECTED_SHA256"
+          if [ "$actual_sha256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::SHA-256 mismatch - the artifact from run $RUN_ID does not match expected_sha256. Refusing to upload."
+            exit 1
+          fi
+
+      - name: Fail if the release already has a CredentialScrubber.exe asset
+        shell: bash
+        run: |
+          existing=$(gh release view "$TAG" --json assets --jq '.assets[] | select(.name == "CredentialScrubber.exe") | .name')
+          if [ -n "$existing" ]; then
+            echo "::error::Release $TAG already has a CredentialScrubber.exe asset - refusing to overwrite (no --clobber). Delete it first if a replacement is really intended."
+            exit 1
+          fi
+
+      - name: Upload the verified exe to the release
+        shell: bash
+        run: gh release upload "$TAG" CredentialScrubber.exe
+
+      - name: Re-download the public asset URL and verify its SHA-256 (never executed)
+        shell: bash
+        run: |
+          curl -L -s -o verify_download.exe "https://github.com/$REPO/releases/download/$TAG/CredentialScrubber.exe"
+          downloaded_sha256=$(sha256sum verify_download.exe | awk '{print $1}')
+          echo "Downloaded asset SHA-256: $downloaded_sha256"
+          echo "Expected:                 $EXPECTED_SHA256"
+          rm -f verify_download.exe
+          if [ "$downloaded_sha256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::The publicly re-downloaded asset does not match expected_sha256 after upload."
+            exit 1
+          fi
