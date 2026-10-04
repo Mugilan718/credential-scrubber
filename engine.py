@@ -1093,74 +1093,77 @@ def fallback_eligibility(src_path):
 # never matches, on purpose; a certificate is public material, not a
 # secret.
 #
-# `header`/`footer`/`body` are captured separately (not just one big
-# match) so _mask_multiline_private_key_block() below can leave the
-# BEGIN/END marker lines themselves untouched (they're not sensitive - a
-# key filename, byte count, or line count is unaffected by this choice
-# either way) and mask only the body between them.
-#
-# `footer` matches EITHER a real "-----END ... PRIVATE KEY-----" line OR
-# (if none is ever found before the file ends) \Z, end-of-string - a
-# truncated/corrupted key file, or one this scan stops partway through,
-# must never leave the remainder of the key body sitting in the output
-# unmasked just because no END line happened to follow it.
-_MULTILINE_PRIVATE_KEY_BLOCK = re.compile(
-    r"(?P<header>-----BEGIN [A-Z ]*PRIVATE KEY-----\r?\n)"
-    r"(?P<body>(?:.*?\r?\n)*?)"
-    r"(?P<footer>-----END [A-Z ]*PRIVATE KEY-----\r?\n?|\Z)",
-    re.IGNORECASE,
-)
+# A BEGIN marker only starts a block when it's the WHOLE (trimmed) line -
+# only leading whitespace and one optional quote character may precede it,
+# and only an optional closing quote may follow - never in the middle of a
+# sentence. Without this, a document that merely *mentions* the marker
+# (a README explaining PEM format, a support ticket, ...) would have the
+# rest of its paragraph treated as key material.
+_BEGIN_KEY_LINE = re.compile(r'^[ \t]*["\']?-----BEGIN ([A-Z ]*PRIVATE KEY)-----["\']?[ \t]*$', re.IGNORECASE)
+_END_KEY_LINE = re.compile(r'^[ \t]*["\']?-----END ([A-Z ]*PRIVATE KEY)-----["\']?[ \t]*$', re.IGNORECASE)
+
+# What a line between BEGIN and (if present) END is allowed to look like to
+# still count as part of the key: base64 body text, a PEM encryption
+# header (only these two are recognized - deliberately not a generic
+# "anything with a colon" match, which would swallow unrelated prose too
+# easily), or blank (the conventional separator between encryption headers
+# and the base64 body). Only used to decide where to STOP consuming lines
+# when no END marker is found - see _mask_multiline_private_key_blocks()'s
+# docstring.
+_BASE64_KEY_LINE = re.compile(r"^[A-Za-z0-9+/]+=*$")
+_PEM_ENCRYPTION_HEADER_LINE = re.compile(r"^(Proc-Type|DEK-Info):", re.IGNORECASE)
 
 _LINE_ENDING = re.compile(r"\r?\n$")
 
 
-def _mask_multiline_private_key_block(m, line_no, rules, report_entries, filename, ignore_map, placeholder_registry):
-    """`re.sub()` replacement callback for one `_MULTILINE_PRIVATE_KEY_BLOCK`
-    match. `line_no` is the BEGIN line's line number in the original file
-    (computed by the caller, which still has the unmodified content to
-    count newlines against).
+def _is_key_material_line(stripped):
+    if stripped == "":
+        return True
+    return bool(_BASE64_KEY_LINE.match(stripped)) or bool(_PEM_ENCRYPTION_HEADER_LINE.match(stripped))
+
+
+def _mask_key_block_lines(block_lines, has_footer, rules, report_entries, filename, line_no, ignore_map, placeholder_registry):
+    """Masks one already-identified block: `block_lines` is
+    [header, *body, footer] if `has_footer` (a real END line was found) or
+    [header, *body] otherwise (consumption stopped at the first
+    non-key-material line, or end of file).
 
     Masking approach: the BEGIN/END marker lines are kept as-is (never
-    sensitive); the body between them - which may be any number of lines -
-    is collapsed to a single MASK/placeholder marker on its first line,
-    with every other body line blanked (its own line ending kept, content
-    emptied). This keeps the output's total LINE COUNT identical to the
-    original block - and therefore the whole file's - so line numbers
-    reported for anything else in the file, before or after this block,
-    stay exactly aligned with the original. It also leaves the (harmless)
-    BEGIN/END lines visible, so the output still reads as "a private key
-    was here," rather than silently vanishing into blank lines.
+    sensitive); the body between them is collapsed to a single MASK/
+    placeholder marker on its first line, with every other body line
+    blanked (its own line ending kept, content emptied). This keeps the
+    returned line count identical to `len(block_lines)`, so the caller's
+    overall line count - and therefore every other finding's reported line
+    number - stays exactly aligned with the original file.
     """
-    whole = m.group(0)
-    header = m.group("header")
-    body = m.group("body")
-    footer = m.group("footer")
+    whole = "".join(block_lines)
 
     if is_placeholder(whole, rules["placeholder_allowlist"]):
-        return whole
+        return block_lines
 
     rule = f"{FALLBACK_RULE_PREFIX}:private_key_block"
     suppress, changed = check_ignore(ignore_map, filename, None, rule, whole)
     if suppress:
-        return whole
+        return block_lines
 
     if placeholder_registry is not None:
         after_val = placeholder_registry.get_or_create("PRIVATE_KEY", whole)
     else:
         after_val = MASK
 
-    body_lines = body.splitlines(keepends=True)
+    header = block_lines[0]
+    footer = block_lines[-1] if has_footer else None
+    body_lines = block_lines[1:-1] if has_footer else block_lines[1:]
+
     if body_lines:
         first_ending_m = _LINE_ENDING.search(body_lines[0])
         first_ending = first_ending_m.group(0) if first_ending_m else ""
-        masked_body_lines = [after_val + first_ending]
+        masked_body = [after_val + first_ending]
         for ln in body_lines[1:]:
             ending_m = _LINE_ENDING.search(ln)
-            masked_body_lines.append(ending_m.group(0) if ending_m else "")
-        masked_body = "".join(masked_body_lines)
+            masked_body.append(ending_m.group(0) if ending_m else "")
     else:
-        # BEGIN immediately followed by END (or EOF) - no body to mask.
-        masked_body = body
+        masked_body = []
 
     entry = {"file": filename, "line": line_no, "key": None, "rule": rule,
               "before": whole, "after": after_val}
@@ -1168,23 +1171,78 @@ def _mask_multiline_private_key_block(m, line_no, rules, report_entries, filenam
         entry["previously_ignored_value_changed"] = True
     report_entries.append(entry)
 
-    return header + masked_body + footer
+    return [header] + masked_body + ([footer] if has_footer else [])
 
 
 def _mask_multiline_private_key_blocks(content, rules, report_entries, filename, ignore_map=None, placeholder_registry=None):
     """Finds and masks every real multi-line private-key block in `content`
     (the whole file's text, not a single line), returning the masked
-    content - same total line count as the input (see
-    _mask_multiline_private_key_block()'s docstring), so splitting the
-    result back into lines keeps every other finding's reported line
-    number correct."""
+    content - same total line count as the input, so splitting the result
+    back into lines keeps every other finding's reported line number
+    correct.
+
+    A block starts at a line matching `_BEGIN_KEY_LINE` (see its comment -
+    excludes a mid-sentence mention of the marker). If a line matching
+    `_END_KEY_LINE` follows, everything up to and including it is the
+    block, full stop - a real END marker is unambiguous evidence this is a
+    genuine key, however short its body. Otherwise (no END line, possibly
+    because the key was truncated, or the file simply ends) lines are
+    consumed one at a time only while they still look like key material
+    (`_is_key_material_line()`); consumption stops at the first line that
+    doesn't, so a document that merely mentions the marker and then moves
+    on to ordinary prose doesn't lose the rest of its content. In that
+    no-END case, at least one non-blank key-material line must have been
+    consumed for this to count as a real block at all - a bare mention
+    with nothing resembling key material after it is left completely
+    untouched (not even treated as a 1-line "block").
+    """
     ignore_map = ignore_map or {}
+    lines = content.splitlines(keepends=True)
+    output = []
+    i = 0
+    n = len(lines)
 
-    def _replace(m):
-        line_no = content.count("\n", 0, m.start()) + 1
-        return _mask_multiline_private_key_block(m, line_no, rules, report_entries, filename, ignore_map, placeholder_registry)
+    while i < n:
+        stripped = _LINE_ENDING.sub("", lines[i])
+        if not _BEGIN_KEY_LINE.match(stripped):
+            output.append(lines[i])
+            i += 1
+            continue
 
-    return _MULTILINE_PRIVATE_KEY_BLOCK.sub(_replace, content)
+        begin_idx = i
+        j = i + 1
+        end_idx = None
+        saw_content = False
+        while j < n:
+            s = _LINE_ENDING.sub("", lines[j])
+            if _END_KEY_LINE.match(s):
+                end_idx = j
+                break
+            if _is_key_material_line(s):
+                if s != "":
+                    saw_content = True
+                j += 1
+                continue
+            break
+
+        if end_idx is None and not saw_content:
+            # Just a mention of the marker, not followed by anything that
+            # looks like key material or a real END line - leave it alone
+            # and keep scanning from the very next line.
+            output.append(lines[i])
+            i += 1
+            continue
+
+        block_end = end_idx + 1 if end_idx is not None else j
+        block_lines = lines[begin_idx:block_end]
+        masked_lines = _mask_key_block_lines(
+            block_lines, end_idx is not None, rules, report_entries, filename,
+            begin_idx + 1, ignore_map, placeholder_registry,
+        )
+        output.extend(masked_lines)
+        i = block_end
+
+    return "".join(output)
 
 
 def process_fallback_file(src_path, rel_path, rules, report_entries, ignore_map={}, placeholder_registry=None):

@@ -184,3 +184,85 @@ def test_properties_continuation_pem_is_not_caught_known_pre_existing_limitation
     entries, scanned, _, written = _scan_single_file(tmp_path, "app.properties", props)
     assert entries == []
     assert "MIIFAKEDATA1234567890ABCDEFGHIJ" in written
+
+
+# ---------------------------------------------------------------------
+# BEGIN marker must start a line (leading whitespace/quote allowed), and
+# the no-END case only masks consecutive key-material lines.
+# ---------------------------------------------------------------------
+
+def test_mid_sentence_mention_in_markdown_prose_is_left_untouched(tmp_path):
+    md = (
+        "The PEM format starts with -----BEGIN RSA PRIVATE KEY----- and ends "
+        "with the matching END marker.\n"
+        "Second line unaffected.\n"
+        "Third line, also untouched, still mentioning -----END RSA PRIVATE KEY----- in prose.\n"
+    )
+    entries, scanned, _, written = _scan_single_file(tmp_path, "docs.md", md)
+    assert entries == []
+    assert written == md
+
+
+def test_truncated_key_base64_lines_no_end_is_fully_masked(tmp_path):
+    truncated = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEpQIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+        "KLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+    )
+    entries, scanned, _, written = _scan_single_file(tmp_path, "id_rsa_truncated", truncated)
+    assert len(entries) == 1
+    assert entries[0]["rule"] == "fallback:private_key_block"
+    assert "MIIEpQIBAAKCAQEA" not in written
+    assert "KLMNOPQRSTUVWXYZ0123456789" not in written
+    assert written.startswith("-----BEGIN RSA PRIVATE KEY-----\n")
+    assert len(written.splitlines()) == len(truncated.splitlines())
+
+
+def test_key_lines_then_prose_paragraph_masks_key_keeps_prose(tmp_path):
+    mixed = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEpQIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+        "KLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+        "This is a prose paragraph explaining the key above in more detail.\n"
+        "It continues for a couple more lines of ordinary text.\n"
+    )
+    entries, scanned, _, written = _scan_single_file(tmp_path, "mixed.txt", mixed)
+    assert len(entries) == 1
+    assert entries[0]["rule"] == "fallback:private_key_block"
+    assert "MIIEpQIBAAKCAQEA" not in written
+    assert "This is a prose paragraph explaining the key above in more detail." in written
+    assert "It continues for a couple more lines of ordinary text." in written
+    assert len(written.splitlines()) == len(mixed.splitlines())
+
+
+def test_marker_alone_followed_by_prose_with_no_key_material_is_not_a_block(tmp_path):
+    """Not one of the explicitly required cases, but the natural edge the
+    "at least one key-material line" rule exists for: a BEGIN marker alone
+    on its own line, immediately followed by ordinary prose (no base64 at
+    all) - should produce no finding and no corruption, same spirit as the
+    mid-sentence-mention case."""
+    content = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "This marker indicates where a key begins, as explained above.\n"
+        "More prose continues here.\n"
+    )
+    entries, scanned, _, written = _scan_single_file(tmp_path, "marker_then_prose.md", content)
+    assert entries == []
+    assert written == content
+
+
+def test_pem_header_lines_proc_type_dek_info_are_treated_as_key_material(tmp_path):
+    encrypted = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "Proc-Type: 4,ENCRYPTED\n"
+        "DEK-Info: AES-128-CBC,D54228DB5838F4A43B5E2184A3E1B2C1\n"
+        "\n"
+        "MIIEpQIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+        "KLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+        "-----END RSA PRIVATE KEY-----\n"
+    )
+    entries, scanned, _, written = _scan_single_file(tmp_path, "id_rsa_enc", encrypted)
+    assert len(entries) == 1
+    assert entries[0]["rule"] == "fallback:private_key_block"
+    assert "MIIEpQIBAAKCAQEA" not in written
+    assert len(written.splitlines()) == len(encrypted.splitlines())
