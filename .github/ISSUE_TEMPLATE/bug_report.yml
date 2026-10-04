@@ -1,0 +1,81 @@
+name: Bug report
+description: Report a problem with the online scanner or the desktop app
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Never paste real credentials here
+
+        This form (and everything you attach to it) is **public**. Before
+        submitting, replace every real secret, password, key, token, or
+        internal hostname with a fake/placeholder value - use something
+        obviously made up (e.g. `fake-ExampleSecret123`) to reproduce the
+        issue instead.
+
+  - type: checkboxes
+    id: no-real-secrets
+    attributes:
+      label: Confirm before submitting
+      options:
+        - label: >-
+            I have removed or replaced every real secret, password, key,
+            token, and internal hostname in everything I'm pasting here.
+          required: true
+
+  - type: dropdown
+    id: product
+    attributes:
+      label: Which product?
+      options:
+        - Online scanner
+        - Desktop app
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        The desktop app's version (see its README/CHANGELOG), or the date
+        you used the online scanner. Not sure? Put "latest".
+      placeholder: e.g. 2.0.1, or latest
+    validations:
+      required: true
+
+  - type: input
+    id: os-browser
+    attributes:
+      label: OS and browser
+      description: For the desktop app, your OS is enough; for the online scanner, include the browser too.
+      placeholder: e.g. Windows 11, Chrome 129
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use fake values only (see the warning above).
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true

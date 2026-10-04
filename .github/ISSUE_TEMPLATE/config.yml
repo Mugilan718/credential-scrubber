@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Mugilan718/credential-scrubber/security/advisories/new
+    about: >-
+      Please do NOT open a public issue for a security vulnerability -
+      use this private advisory form instead.
+  - name: Frequently Asked Questions
+    url: https://mugilan718.github.io/credential-scrubber-site/faq.html
+    about: Check the FAQ before opening an issue - many common questions are already answered there.

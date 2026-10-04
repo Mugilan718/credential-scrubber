@@ -1,0 +1,34 @@
+name: Question
+description: Ask a question about the online scanner or the desktop app
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ⚠️ Never paste real credentials here
+
+        This form (and everything you attach to it) is **public**. Before
+        submitting, replace every real secret, password, key, token, or
+        internal hostname with a fake/placeholder value.
+
+        Also worth a quick check first: the
+        [FAQ](https://mugilan718.github.io/credential-scrubber-site/faq.html)
+        covers a number of common questions already.
+
+  - type: checkboxes
+    id: no-real-secrets
+    attributes:
+      label: Confirm before submitting
+      options:
+        - label: >-
+            I have removed or replaced every real secret, password, key,
+            token, and internal hostname in everything I'm pasting here.
+          required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
