@@ -26,5 +26,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # Playwright isn't in requirements-dev.txt (tests/test_folder_filter_ui.py
+      # guards on pytest.importorskip("playwright") and skips cleanly without
+      # it) - installed here on 3.12 only, to actually exercise that UI
+      # regression test in CI without doubling the browser-install cost
+      # across the whole matrix.
+      - name: Install Playwright (Chromium) for the folder-filter UI test
+        if: matrix.python-version == '3.12'
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
       - name: Run pytest
         run: python -m pytest tests/ -v
