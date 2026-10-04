@@ -1,17 +1,58 @@
 # Credential Scrubber
 
-Credential Scrubber is a security boundary for sharing source code with AI
-coding agents. It detects and sanitizes sensitive values in source code
-before that code is shared, while an ongoing research track explores
-whether enough semantic information can be preserved for an AI agent to
-still perform useful software-engineering tasks on the sanitized version.
+Finds hardcoded passwords, API keys, tokens, and connection strings in
+your code, and masks them - before you hand that code to an AI coding
+agent, a teammate, or anyone else.
 
-It ships today as a local desktop web app for credential detection and
-sanitization. A deterministic, typed placeholder mode exists in the
-underlying engine and has been evaluated in a research track under
-`ai-evaluation/` - see [§2](#2-what-the-project-contains) for exactly
-which parts are shipped, which are engine-only, and which are research
-findings.
+**Why:** pasting or handing off source code to an AI coding agent sends
+whatever that file contains - including any hardcoded credential - to a
+third party's context window, logs, and possibly a training pipeline.
+
+**Get started:**
+
+- **[Try it online - no install](https://mugilan718.github.io/credential-scrubber-site/scanner/index.html)**
+  - runs entirely in your browser, nothing is uploaded.
+- **[Download for Windows](https://github.com/Mugilan718/credential-scrubber/releases/latest)**
+  - a local desktop app, no account, no telemetry.
+
+![Credential Scrubber desktop app showing a completed scan of a demo project: 10 files scanned, 34 redactions, with every detected secret masked out in the results table](docs/images/app-screenshot.png)
+
+**What it does:**
+
+- Detects hardcoded passwords, API keys, tokens, and connection strings in
+  Java, Python, JavaScript/TypeScript, Go, and C# source, plus common
+  config formats (`.env`, `.properties`, `.yml`/`.yaml`, `.json`, `.xml`,
+  `.config`, `.ini`, `.conf`, `.cfg`).
+- Also catches high-confidence secret shapes - AWS keys, GitHub/Slack
+  tokens, JWTs, private keys, and URLs with embedded credentials - in
+  other file types it doesn't otherwise recognize.
+- Shows exactly what it found and what would change before anything is
+  written, with scan history and a per-finding ignore list.
+- Runs entirely on your device: the desktop app keeps everything local
+  (no cloud sync, no accounts, no telemetry); the online scanner runs
+  entirely in your browser, with nothing uploaded.
+- Free and open source.
+
+> **Limits, honestly:**
+>
+> - Detection is pattern-based, not a full understanding of your code -
+>   it's a detection aid, not a guarantee that every possible secret is
+>   caught.
+> - In a file type it doesn't fully recognize, only high-confidence
+>   secret shapes are masked - a plain password, IP address, URL, or
+>   email address in that kind of file is left untouched.
+> - The Windows `.exe` is unsigned. Smart App Control or a managed
+>   Application Control policy may block it outright with no "Run
+>   anyway" option - if that happens, use the online scanner instead, or
+>   [build from source](#10-installation).
+> - If you find a real secret in your results, **rotate it** - masking
+>   it for sharing doesn't undo the fact that it already existed in your
+>   code, possibly in git history or somewhere you've already shared it.
+
+Licensed under the [GNU Affero General Public License v3.0](LICENSE)
+(AGPLv3).
+
+More questions? See the [FAQ](https://mugilan718.github.io/credential-scrubber-site/faq.html).
 
 ---
 
