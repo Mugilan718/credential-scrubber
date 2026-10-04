@@ -18,7 +18,22 @@ Nothing yet.
   trailing `;` to be recognized as complete (unlike Java/JavaScript/C#),
   since Go conventionally omits it.
 - "Only" button in the folder-filter tree - a one-click "check just
-  this folder, uncheck everything else" action on each folder row.
+  this folder, uncheck everything else" action on each folder row,
+  keyboard- and touch-accessible.
+- CI now actually runs the Playwright-based folder-filter regression
+  test (previously added but skipped, since Playwright wasn't
+  installed in the workflow) - installed on one Python version to
+  limit run time.
+- A manual (`workflow_dispatch`-only) GitHub Actions workflow that
+  builds the packaged `.exe` with PyInstaller and smoke-tests the
+  built binary itself: serves the page, checks every static asset the
+  page references, exercises the real folder-filter API end to end,
+  and restarts the exe to confirm the database persists.
+- A README note that Smart App Control or a managed Application
+  Control (WDAC/AppLocker) policy can block this unsigned executable
+  outright, with no "Run anyway" option - unlike the dismissible
+  SmartScreen warning already documented, and not something a new
+  release or signing fixes.
 
 ### Fixed
 
@@ -27,10 +42,17 @@ Nothing yet.
   only folders have) meant checking or unchecking anything but the very
   first file/folder in tree order never actually updated what would be
   saved, even though the checkbox itself appeared to toggle normally -
-  so exclusions were never saved.
+  so exclusions were never saved. This affected v2.0.0.
 - Long keys, file paths, and rule names in the results tables (and the
   "Reveal original values" modal) no longer truncate with an ellipsis -
   they wrap instead.
+- `CredentialScrubber.spec` (the PyInstaller build recipe) was wrongly
+  matched by this repo's own `*.spec` gitignore rule and had never
+  actually been committed - every build up to this point used an
+  untracked, local-only copy, so a genuinely fresh clone had nothing to
+  build the `.exe` from at all. Now tracked (with an explicit
+  `!CredentialScrubber.spec` exception), and anchored to PyInstaller's
+  `SPECPATH` instead of the invoking working directory for portability.
 
 ## [2.0.0] - 2026-10-03
 
