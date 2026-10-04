@@ -1,0 +1,48 @@
+name: Build and smoke-test exe
+
+# Manual only - this builds and launches a real Windows executable, not
+# something to run on every push/PR the way tests.yml does.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-smoke-test:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build exe
+        run: pyinstaller CredentialScrubber.spec --noconfirm
+
+      - name: Compute SHA-256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 -Path "dist/CredentialScrubber.exe").Hash.ToLower()
+          "$hash  CredentialScrubber.exe" | Out-File -FilePath "dist/CredentialScrubber.exe.sha256.txt" -Encoding ascii -NoNewline
+          Write-Host "SHA-256: $hash"
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CredentialScrubber-exe
+          path: dist/CredentialScrubber.exe
+
+      - name: Upload checksum artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CredentialScrubber-exe-sha256
+          path: dist/CredentialScrubber.exe.sha256.txt
+
+      - name: Smoke test the built exe
+        run: python .github/scripts/smoke_test_exe.py
