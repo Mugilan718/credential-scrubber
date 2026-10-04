@@ -686,7 +686,7 @@ function renderReportEntries(entries, animate) {
     return;
   }
 
-  const cols = "42px 1fr 100px 90px 160px 74px";
+  const cols = "42px minmax(160px, 1fr) 100px minmax(90px, 170px) minmax(110px, 200px) 74px";
   let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
       <div>Line</div><div>File</div><div>Value</div><div>Rule</div><div>Key / Variable</div><div></div>
     </div>`;
@@ -700,7 +700,7 @@ function renderReportEntries(entries, animate) {
         <div class="result-file" title="${escapeHtml(e.file)}">${escapeHtml(e.file)}</div>
         <div><span class="redaction-bar">REDACTED</span></div>
         <div class="result-rule" title="${escapeHtml(ruleTitle)}">${escapeHtml(e.rule)}${flagged ? ' <span class="changed-badge">\u26a0 changed</span>' : ""}</div>
-        <div class="result-key">${escapeHtml(e.key || "\u2014")}</div>
+        <div class="result-key" title="${escapeHtml(e.key || "")}">${escapeHtml(e.key || "\u2014")}</div>
         <div><button class="btn-ignore" title="Ignore this finding">${icon("x", { size: 14 })}</button></div>
       </div>`;
   });
@@ -741,7 +741,7 @@ async function openSensitiveModal() {
     el("sensitiveModalOverlay").classList.remove("hidden");
     return;
   }
-  const cols = "42px 1fr 90px 1fr 74px";
+  const cols = "42px minmax(140px, 1fr) minmax(90px, 170px) minmax(200px, 1fr) 74px";
   let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
       <div>Line</div><div>File</div><div>Rule</div><div>Before \u2192 After</div><div></div>
     </div>`;
@@ -818,7 +818,7 @@ async function loadIgnores(projectId) {
     return;
   }
 
-  const cols = "1fr 160px 180px 100px 110px 90px";
+  const cols = "minmax(160px, 1fr) minmax(110px, 200px) minmax(90px, 170px) 100px 110px 90px";
   let html = `<div class="results-table-header" style="grid-template-columns: ${cols};">
       <div>File</div><div>Key / Variable</div><div>Rule</div><div>Value tracked</div><div>Ignored on</div><div></div>
     </div>`;
@@ -826,7 +826,7 @@ async function loadIgnores(projectId) {
     const tracked = !!ig.value_hash;
     html += `<div class="result-row" style="grid-template-columns: ${cols};">
         <div class="result-file" title="${escapeHtml(ig.file)}">${escapeHtml(ig.file)}</div>
-        <div class="result-key">${escapeHtml(ig.key || "\u2014")}</div>
+        <div class="result-key" title="${escapeHtml(ig.key || "")}">${escapeHtml(ig.key || "\u2014")}</div>
         <div class="result-rule">${escapeHtml(ig.rule)}</div>
         <div class="result-key" title="${tracked ? "Will re-flag for review if the value changes" : "No value on record \u2014 will always re-flag for review, since a change can't be detected"}">${tracked ? "Yes" : "No"}</div>
         <div class="result-line-no">${new Date(ig.created_at).toLocaleDateString()}</div>

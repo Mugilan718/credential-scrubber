@@ -503,8 +503,12 @@ body {
 }
 
 .result-row {
+  /* grid-template-columns is set inline per-table (three different column
+     sets: the main results table, the "Reveal original values" modal, and
+     the ignored-findings list - see the three `cols` definitions in
+     app.js), since the columns and their minmax() widths differ per
+     table. */
   display: grid;
-  grid-template-columns: 42px 1fr 90px 160px;
   column-gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) var(--space-4);
@@ -539,9 +543,7 @@ body {
 }
 
 .result-file {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .redaction-bar {
@@ -559,22 +561,19 @@ body {
   color: var(--ink-soft);
   font-size: 11px;
   text-transform: lowercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .result-key {
   color: var(--slate);
   font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 /* Before/after secret values in the "Reveal original values" modal - these
    must stay fully visible (the view's whole purpose is to show the real
-   secret), so wrap instead of truncating like .result-key does. */
+   secret), so they wrap the same way .result-file/.result-rule/.result-key
+   now do, rather than being a special case. */
 .sensitive-value {
   color: var(--slate);
   font-size: 11px;
@@ -584,8 +583,8 @@ body {
 }
 
 .results-table-header {
+  /* grid-template-columns is set inline per-table, same as .result-row above. */
   display: grid;
-  grid-template-columns: 42px 1fr 90px 160px;
   column-gap: var(--space-3);
   padding: var(--space-2) var(--space-4);
   font-family: var(--mono);
