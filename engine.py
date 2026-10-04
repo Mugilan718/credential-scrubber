@@ -1079,6 +1079,114 @@ def fallback_eligibility(src_path):
     return None
 
 
+# A REAL multi-line private-key block (id_rsa, server.pem, ...) - unlike
+# rules_default.yaml's private_key_block value_pattern, which only ever
+# matches within one physical line (see redact_value_patterns_only(), which
+# calls it per-line) and so only ever catches a key written as a single
+# line with literal escaped "\n"s (e.g. a JSON/.env-style value). This is
+# the fallback path's own, separate detector for the common case: a real
+# key file, or a key pasted as-is into some other unrecognized file type,
+# spanning many physical lines.
+#
+# Deliberately requires "PRIVATE KEY" in both the BEGIN and END markers
+# (same as the value_pattern) - a "-----BEGIN CERTIFICATE-----" block
+# never matches, on purpose; a certificate is public material, not a
+# secret.
+#
+# `header`/`footer`/`body` are captured separately (not just one big
+# match) so _mask_multiline_private_key_block() below can leave the
+# BEGIN/END marker lines themselves untouched (they're not sensitive - a
+# key filename, byte count, or line count is unaffected by this choice
+# either way) and mask only the body between them.
+#
+# `footer` matches EITHER a real "-----END ... PRIVATE KEY-----" line OR
+# (if none is ever found before the file ends) \Z, end-of-string - a
+# truncated/corrupted key file, or one this scan stops partway through,
+# must never leave the remainder of the key body sitting in the output
+# unmasked just because no END line happened to follow it.
+_MULTILINE_PRIVATE_KEY_BLOCK = re.compile(
+    r"(?P<header>-----BEGIN [A-Z ]*PRIVATE KEY-----\r?\n)"
+    r"(?P<body>(?:.*?\r?\n)*?)"
+    r"(?P<footer>-----END [A-Z ]*PRIVATE KEY-----\r?\n?|\Z)",
+    re.IGNORECASE,
+)
+
+_LINE_ENDING = re.compile(r"\r?\n$")
+
+
+def _mask_multiline_private_key_block(m, line_no, rules, report_entries, filename, ignore_map, placeholder_registry):
+    """`re.sub()` replacement callback for one `_MULTILINE_PRIVATE_KEY_BLOCK`
+    match. `line_no` is the BEGIN line's line number in the original file
+    (computed by the caller, which still has the unmodified content to
+    count newlines against).
+
+    Masking approach: the BEGIN/END marker lines are kept as-is (never
+    sensitive); the body between them - which may be any number of lines -
+    is collapsed to a single MASK/placeholder marker on its first line,
+    with every other body line blanked (its own line ending kept, content
+    emptied). This keeps the output's total LINE COUNT identical to the
+    original block - and therefore the whole file's - so line numbers
+    reported for anything else in the file, before or after this block,
+    stay exactly aligned with the original. It also leaves the (harmless)
+    BEGIN/END lines visible, so the output still reads as "a private key
+    was here," rather than silently vanishing into blank lines.
+    """
+    whole = m.group(0)
+    header = m.group("header")
+    body = m.group("body")
+    footer = m.group("footer")
+
+    if is_placeholder(whole, rules["placeholder_allowlist"]):
+        return whole
+
+    rule = f"{FALLBACK_RULE_PREFIX}:private_key_block"
+    suppress, changed = check_ignore(ignore_map, filename, None, rule, whole)
+    if suppress:
+        return whole
+
+    if placeholder_registry is not None:
+        after_val = placeholder_registry.get_or_create("PRIVATE_KEY", whole)
+    else:
+        after_val = MASK
+
+    body_lines = body.splitlines(keepends=True)
+    if body_lines:
+        first_ending_m = _LINE_ENDING.search(body_lines[0])
+        first_ending = first_ending_m.group(0) if first_ending_m else ""
+        masked_body_lines = [after_val + first_ending]
+        for ln in body_lines[1:]:
+            ending_m = _LINE_ENDING.search(ln)
+            masked_body_lines.append(ending_m.group(0) if ending_m else "")
+        masked_body = "".join(masked_body_lines)
+    else:
+        # BEGIN immediately followed by END (or EOF) - no body to mask.
+        masked_body = body
+
+    entry = {"file": filename, "line": line_no, "key": None, "rule": rule,
+              "before": whole, "after": after_val}
+    if changed:
+        entry["previously_ignored_value_changed"] = True
+    report_entries.append(entry)
+
+    return header + masked_body + footer
+
+
+def _mask_multiline_private_key_blocks(content, rules, report_entries, filename, ignore_map=None, placeholder_registry=None):
+    """Finds and masks every real multi-line private-key block in `content`
+    (the whole file's text, not a single line), returning the masked
+    content - same total line count as the input (see
+    _mask_multiline_private_key_block()'s docstring), so splitting the
+    result back into lines keeps every other finding's reported line
+    number correct."""
+    ignore_map = ignore_map or {}
+
+    def _replace(m):
+        line_no = content.count("\n", 0, m.start()) + 1
+        return _mask_multiline_private_key_block(m, line_no, rules, report_entries, filename, ignore_map, placeholder_registry)
+
+    return _MULTILINE_PRIVATE_KEY_BLOCK.sub(_replace, content)
+
+
 def process_fallback_file(src_path, rel_path, rules, report_entries, ignore_map={}, placeholder_registry=None):
     """Scans a file classify_file() doesn't recognize, restricted to the
     high-confidence FALLBACK_VALUE_PATTERN_NAMES subset (see its docstring)
@@ -1088,13 +1196,17 @@ def process_fallback_file(src_path, rel_path, rules, report_entries, ignore_map=
     this file."""
     try:
         with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
-            lines = f.readlines()
+            content = f.read()
     except Exception as e:
         return None, f"Could not read file: {e}"
 
+    filename = str(rel_path)
+    content = _mask_multiline_private_key_blocks(content, rules, report_entries, filename, ignore_map, placeholder_registry)
+    lines = content.splitlines(keepends=True)
+
     output_lines = [
         redact_value_patterns_only(
-            l, rules, report_entries, str(rel_path), i + 1, ignore_map, placeholder_registry,
+            l, rules, report_entries, filename, i + 1, ignore_map, placeholder_registry,
             allowed_names=FALLBACK_VALUE_PATTERN_NAMES, rule_prefix=FALLBACK_RULE_PREFIX,
         )
         for i, l in enumerate(lines)
