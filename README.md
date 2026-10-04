@@ -74,10 +74,11 @@ AI coding agent
 AI response / generated code
 ```
 
-Pasting or handing off source code to an AI coding agent sends whatever
-that file contains - including any hardcoded credential - to a third
-party's context window, logs, and possibly training pipeline. Credential
-Scrubber sits before that step and removes sensitive values first.
+Code pasted or handed off to an AI coding agent leaves the developer's
+machine, and any hardcoded credential in it goes with it - what happens
+next depends on that provider's retention and data-use policies.
+Credential Scrubber sits before that step and removes sensitive values
+first.
 
 The simplest fix - replacing every secret with the same generic mask -
 also removes information an AI agent needs to reason correctly about the
