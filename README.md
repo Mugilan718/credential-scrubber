@@ -246,6 +246,22 @@ extension, or a null byte in its first 8KB) or over 2MB is still copied
 through untouched either way - the preview and the Apply confirmation
 report how many files this applied to and why.
 
+A **real, multi-line private-key block** (`id_rsa`, `server.pem`, or one
+pasted as-is into any other unrecognized file type) is detected
+separately from the single-line value-pattern match above: it matches
+`-----BEGIN`/`-----END ... PRIVATE KEY-----` markers across physical
+lines (OPENSSH/RSA/EC/generic headers, CRLF line endings), masking the
+body between them while leaving the harmless BEGIN/END marker lines
+themselves intact and the file's line count unchanged - a key with no
+`END` line is masked all the way to the end of the file rather than
+leaving part of it exposed. A `-----BEGIN CERTIFICATE-----` block is
+never touched (a certificate is public material, not a secret). This
+only applies to unrecognized file types - a key embedded as a YAML
+block-scalar value, or split across `.properties` backslash-continuation
+lines, in a file type the full detection above already covers is **not**
+caught by this or any other existing mechanism; see the YAML
+block-scalar limitation below.
+
 **JSON/XML/.config handling is regex/line-based**, matching
 `"key": value` / `<add key=".." value=".."/>` / `<Key>value</Key>`
 shapes directly rather than parsing the format - this is intentional
