@@ -325,6 +325,16 @@ function isPathExcluded(filePath, excludedSet) {
 
 function findNodeByPath(node, path) {
   if (node.path === path) return node;
+  // File nodes have no .children (see buildFileTree) - without this guard,
+  // searching for anything other than the very first file/folder in
+  // document order crashes as soon as the recursion reaches an unrelated
+  // file sibling, since `for...of undefined` throws. That silently broke
+  // every folder-filter checkbox click except the trivial first-file case:
+  // the checkbox's native visual state still flipped, but checkedPaths was
+  // never updated, so Save persisted the OLD selection - "folder selection
+  // doesn't affect results" even though nothing was wrong with how
+  // exclusions are computed or applied once they're actually saved.
+  if (node.type !== "folder") return null;
   for (const c of node.children) {
     const found = findNodeByPath(c, path);
     if (found) return found;
@@ -408,6 +418,7 @@ function createFileTreeWidget({ listId, summaryId, selectAllId, deselectAllId })
       ${icon("folder-open", { size: 13, class: "tree-icon" })}
       <span class="tree-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</span>
       <span class="tree-count">${fileCount} file${fileCount === 1 ? "" : "s"}</span>
+      <button type="button" class="tree-only-btn" data-path="${escapeHtml(node.path)}" title="Check only this folder, uncheck everything else">Only</button>
     </div>`;
     if (isExpanded) {
       node.children.forEach((c) => { html += rowHtml(c, depth + 1); });
@@ -425,6 +436,21 @@ function createFileTreeWidget({ listId, summaryId, selectAllId, deselectAllId })
 
   const listEl = el(listId);
   listEl.addEventListener("click", (e) => {
+    const onlyBtn = e.target.closest(".tree-only-btn");
+    if (onlyBtn) {
+      const node = findNodeByPath(tree, onlyBtn.dataset.path);
+      if (node) {
+        // "Select a folder" read literally - everything else unchecked,
+        // only this folder (and its descendants) checked. Addresses the
+        // likely source of "folder selection does nothing": since every
+        // file starts checked, checking an already-checked folder is a
+        // no-op - this is the one-click "scan only this" a user reaching
+        // for that mental model actually wants.
+        checkedPaths = new Set(collectFilePaths(node));
+        render();
+      }
+      return;
+    }
     const toggleBtn = e.target.closest(".tree-toggle");
     if (!toggleBtn) return;
     const path = toggleBtn.dataset.path;
