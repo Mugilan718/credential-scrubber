@@ -4,9 +4,9 @@ Finds hardcoded passwords, API keys, tokens, and connection strings in
 your code, and masks them - before you hand that code to an AI coding
 agent, a teammate, or anyone else.
 
-**Why:** pasting or handing off source code to an AI coding agent sends
-whatever that file contains - including any hardcoded credential - to a
-third party's context window, logs, and possibly a training pipeline.
+**Why:** Code you paste into an AI tool leaves your machine, and any
+hardcoded credential in it goes with it. What happens next depends on
+that provider's retention and data-use policies.
 
 **Get started:**
 
