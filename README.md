@@ -524,9 +524,15 @@ instead (no download at all), or build from source as described below.
 
 Since the full source is public, if you'd rather not run a prebuilt
 binary at all, you don't have to - build it yourself directly from
-source with the PyInstaller spec above (`pip install -r requirements.txt
-pyinstaller` then `pyinstaller CredentialScrubber.spec`), so you never
-have to trust a binary you didn't build.
+source with the PyInstaller spec above, so you never have to trust a
+binary you didn't build:
+
+```text
+pip install -r requirements.txt pyinstaller
+pyinstaller CredentialScrubber.spec
+```
+
+The built `.exe` is written to `dist/CredentialScrubber.exe`.
 
 **Tests:**
 
