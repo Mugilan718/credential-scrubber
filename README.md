@@ -231,8 +231,20 @@ directory (`%APPDATA%\CredentialScrubber` on Windows,
 | YAML | Regex-based key-value matching; see the block-scalar limitation below. |
 | `.properties`, `.env`, `.ini`, `.conf`, `.cfg` | Config-style key-value matching. |
 
-Any other file extension is copied through unscanned rather than parsed
-as text.
+Any other file extension (a lockfile, `Dockerfile`, `.rb` script, README,
+etc.) is scanned with a narrower, high-confidence-only pass instead of the
+full detection above: AWS access keys, GitHub/Slack tokens, JWTs,
+private-key blocks, and URLs with embedded credentials - with no
+key-name matching at all, so a plain `password = "..."` assignment or an
+env var set to a password value is **not** caught this way. A broader set
+of shapes (plain IP addresses, generic URLs, email addresses) is
+deliberately left out of this fallback: measured against a realistic
+project full of lockfiles and docs, it was almost entirely false
+positives (gem/package version numbers read as IP addresses, lockfile
+registry URLs, ordinary contact emails). A file recognized as binary (by
+extension, or a null byte in its first 8KB) or over 2MB is still copied
+through untouched either way - the preview and the Apply confirmation
+report how many files this applied to and why.
 
 **JSON/XML/.config handling is regex/line-based**, matching
 `"key": value` / `<add key=".." value=".."/>` / `<Key>value</Key>`

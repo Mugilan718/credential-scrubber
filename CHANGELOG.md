@@ -6,7 +6,33 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- A file whose type isn't recognized (a lockfile, `Dockerfile`, `.rb`
+  script, README, etc.) is no longer copied through completely
+  untouched - it's now scanned for a small set of high-confidence
+  secret shapes (AWS keys, GitHub/Slack tokens, JWTs, private-key
+  blocks, and URLs with embedded credentials), while files over 2MB or
+  recognized as binary (by extension or a null byte in their first
+  8KB) are still skipped and copied through as before. This does
+  **not** catch a plain password/API key assigned to a suspicious-
+  looking variable name in an unrecognized file type - that detection
+  relies on key-name awareness that only exists for recognized
+  config/code files. See the FAQ for the full list of what is and
+  isn't covered.
+- The preview and the Apply confirmation now report "N files were
+  copied without being checked," grouped by reason (unsupported binary
+  type / over the 2MB size limit) with an expandable list - a notice,
+  not a blocker.
+
+### Fixed
+
+- `bearer_token` detection matched ordinary prose (e.g. "a bearer
+  token in the Authorization header") and failed to recognize a
+  documented placeholder value (its allow-list check compared the
+  whole match, including the literal word "Bearer," instead of just
+  the token). Fixed by requiring a realistic minimum token length and
+  checking the placeholder allow-list against the token alone.
 
 ## [2.0.1] - 2026-10-04
 
