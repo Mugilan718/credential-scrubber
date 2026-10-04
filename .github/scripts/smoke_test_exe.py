@@ -88,7 +88,7 @@ def main():
         fail(f"GET / returned {status}, expected 200")
     if "Credential Scrubber" not in body:
         fail('GET / response did not contain "Credential Scrubber"')
-    print("[1/4] GET / OK")
+    print("[1/6] GET / OK")
 
     # 2. Every /static/ asset the page actually references returns 200 -
     # catches a file missing from the PyInstaller bundle's datas.
@@ -100,7 +100,7 @@ def main():
         if a_status != 200:
             fail(f"Static asset {asset} returned {a_status} - missing from the bundle?")
         print(f"       {asset} -> 200")
-    print("[2/4] Static assets OK")
+    print("[2/6] Static assets OK")
 
     # 3. Real API routes: create a project with two nested subfolders (one
     # fake secret each), exclude one, preview, assert the excluded file's
@@ -138,15 +138,96 @@ def main():
         fail(f"excluded file's finding is still present in the preview: {files_in_preview}")
     if not has_a:
         fail(f"included file's finding is missing from the preview: {files_in_preview}")
-    print("[3/4] Folder-filter exclusion via the real API OK")
+    print("[3/6] Folder-filter exclusion via the real API OK")
 
-    # 4. Stop, relaunch, confirm the project survived (database persistence).
+    # 4. Unrecognized-file fallback + unscanned-files visibility, through
+    # the real preview/apply API - a .rb file with an AWS-style key AND a
+    # plain password (only the former should be caught - the fallback has
+    # no key-name awareness), a multi-line id_rsa-style PEM, a small binary
+    # file, and a file over the 2MB fallback-scan size limit.
+    folder_fallback = os.path.join(tmp_dir, "folder_fallback")
+    os.makedirs(folder_fallback)
+    with open(os.path.join(folder_fallback, "secret.rb"), "w", encoding="utf-8") as f:
+        f.write('aws_key = "AKIAIOSFODNN7EXAMPLE"\n')
+        f.write('password = "hunter2"\n')
+    id_rsa_content = (
+        "-----BEGIN RSA PRIVATE KEY-----\n"
+        "MIIEpQIBAAKCAQEA1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+        "KLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJ\n"
+        "KLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz==\n"
+        "-----END RSA PRIVATE KEY-----\n"
+    )
+    with open(os.path.join(folder_fallback, "id_rsa"), "w", encoding="utf-8", newline="") as f:
+        f.write(id_rsa_content)
+    with open(os.path.join(folder_fallback, "photo.bin"), "wb") as f:
+        f.write(bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) + os.urandom(200))
+    with open(os.path.join(folder_fallback, "huge.rb"), "wb") as f:
+        f.write(b'password = "hunter2"\n')
+        f.write(b"x" * (2 * 1024 * 1024 + 500))
+
+    preview2 = api("POST", f"/api/projects/{project_id}/preview", {})
+    entries2 = preview2["entries"]
+
+    # engine.py reports a finding's "file" with the OS's native path
+    # separator (str(rel_path), not rel_path.as_posix()) - true for every
+    # existing finding, not specific to this feature. Normalize before
+    # comparing rather than assuming "/".
+    def norm(path):
+        return path.replace("\\", "/")
+
+    secret_rb_entries = [e for e in entries2 if norm(e["file"]) == "folder_fallback/secret.rb"]
+    if len(secret_rb_entries) != 1 or "aws_access_key_id" not in secret_rb_entries[0]["rule"]:
+        fail(f"expected exactly one aws_access_key_id finding for secret.rb (and the plain password left unflagged), got: {secret_rb_entries}")
+
+    id_rsa_entries = [e for e in entries2 if norm(e["file"]) == "folder_fallback/id_rsa"]
+    if len(id_rsa_entries) != 1 or "private_key_block" not in id_rsa_entries[0]["rule"]:
+        fail(f"expected exactly one private_key_block finding for id_rsa, got: {id_rsa_entries}")
+
+    unscanned_rel_paths = {norm(u["rel_path"]): u["reason"] for u in preview2["unscanned_files"]}
+    if unscanned_rel_paths.get("folder_fallback/photo.bin") != "binary":
+        fail(f"expected photo.bin in unscanned_files with reason 'binary', got: {unscanned_rel_paths}")
+    if unscanned_rel_paths.get("folder_fallback/huge.rb") != "oversize":
+        fail(f"expected huge.rb in unscanned_files with reason 'oversize', got: {unscanned_rel_paths}")
+    print("[4/6] Unrecognized-file fallback + unscanned-files list via the real preview API OK")
+
+    # 5. Apply, then verify the ACTUAL applied output on disk: the AWS key
+    # is really redacted, the plain password really isn't, the PEM body is
+    # masked with its line count preserved, and the binary/oversized files
+    # are really present (copied through untouched).
+    apply_result = api("POST", f"/api/projects/{project_id}/apply", {})
+    applied_unscanned = {norm(u["rel_path"]): u["reason"] for u in apply_result["unscanned_files"]}
+    if applied_unscanned.get("folder_fallback/photo.bin") != "binary" or applied_unscanned.get("folder_fallback/huge.rb") != "oversize":
+        fail(f"Apply response's unscanned_files missing expected entries: {applied_unscanned}")
+
+    with open(os.path.join(out_dir, "folder_fallback", "secret.rb"), "r", encoding="utf-8") as f:
+        secret_rb_written = f.read()
+    if "AKIAIOSFODNN7EXAMPLE" in secret_rb_written:
+        fail("AWS key was NOT redacted in the applied output")
+    if 'password = "hunter2"' not in secret_rb_written:
+        fail("plain password was unexpectedly redacted in the applied output (documented limit regressed)")
+
+    with open(os.path.join(out_dir, "folder_fallback", "id_rsa"), "r", encoding="utf-8") as f:
+        id_rsa_written = f.read()
+    if "MIIEpQIBAAKCAQEA" in id_rsa_written:
+        fail("PEM key body was NOT masked in the applied output")
+    if len(id_rsa_written.splitlines()) != len(id_rsa_content.splitlines()):
+        fail(f"PEM line count was not preserved: expected {len(id_rsa_content.splitlines())} lines, got {len(id_rsa_written.splitlines())}")
+
+    photo_out = os.path.join(out_dir, "folder_fallback", "photo.bin")
+    if not os.path.isfile(photo_out):
+        fail("binary file was not copied to the applied output")
+    huge_out = os.path.join(out_dir, "folder_fallback", "huge.rb")
+    if not os.path.isfile(huge_out) or os.path.getsize(huge_out) < 2 * 1024 * 1024:
+        fail("oversized file was not copied to the applied output")
+    print("[5/6] Applied output on disk OK: AWS key redacted, plain password untouched, PEM masked with line count preserved, binary/oversized files present")
+
+    # 6. Stop, relaunch, confirm the project survived (database persistence).
     stop_exe(proc)
     proc = launch_exe()
     projects = api("GET", "/api/projects")
     if not any(p["id"] == project_id for p in projects):
         fail(f"project {project_id} not found after restart - database was not persisted")
-    print("[4/4] Database persistence across restart OK")
+    print("[6/6] Database persistence across restart OK")
 
     stop_exe(proc)
     print("SMOKE TEST PASSED")
