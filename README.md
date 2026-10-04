@@ -514,6 +514,14 @@ If the output doesn't match the checksum published for that release, do
 not run the file - re-download it, and if it still doesn't match, open
 an issue.
 
+On a Windows machine with Smart App Control enabled, or a managed
+Application Control (WDAC/AppLocker) policy, this unsigned executable
+may be **blocked outright with no "Run anyway" option** - a stricter
+response than the dismissible SmartScreen warning described above, and
+not something this project can fix by signing or re-releasing the
+binary. If that happens, use the [online scanner](https://mugilan718.github.io/credential-scrubber-site/scanner/index.html)
+instead (no download at all), or build from source as described below.
+
 Since the full source is public, if you'd rather not run a prebuilt
 binary at all, you don't have to - build it yourself directly from
 source with the PyInstaller spec above (`pip install -r requirements.txt
