@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.1.0] - 2026-10-04
+
 ### Added
 
 - A file whose type isn't recognized (a lockfile, `Dockerfile`, `.rb`
@@ -40,6 +44,19 @@ follows [Semantic Versioning](https://semver.org/).
   copied without being checked," grouped by reason (unsupported binary
   type / over the 2MB size limit) with an expandable list - a notice,
   not a blocker.
+- GitHub issue forms (`bug_report.yml`/`question.yml`), both requiring
+  a checkbox confirming every real secret/password/key/token/internal
+  hostname was removed or replaced before submission; `config.yml`
+  disables blank issues and routes security reports to the private
+  advisory form and general questions to the FAQ instead of an issue
+  template.
+- The packaged exe's smoke test (`build-exe.yml`) now also exercises
+  the unrecognized-file fallback through the real API: an AWS-style
+  key is found and redacted in the applied output, a multi-line
+  `id_rsa`-style PEM is masked with its line count preserved, a plain
+  password in a `.rb` file is confirmed NOT redacted, and a binary
+  file plus an over-2MB file both appear in the "copied without being
+  checked" list.
 
 ### Fixed
 
@@ -186,6 +203,7 @@ Security-relevant fixes from an internal audit (tracked as F1-F4):
   `POST /api/projects/<id>/apply` (see "Added" above). Anything calling
   the old route directly needs to switch to the two-step flow.
 
-[Unreleased]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/Mugilan718/credential-scrubber/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Mugilan718/credential-scrubber/compare/v1.0.0...v2.0.0
