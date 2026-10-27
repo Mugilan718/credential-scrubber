@@ -20,7 +20,7 @@ that provider's retention and data-use policies.
 **What it does:**
 
 - Detects hardcoded passwords, API keys, tokens, and connection strings in
-  Java, Python, JavaScript/TypeScript, Go, and C# source, plus common
+  Java, Python, JavaScript/TypeScript, Go, C#, and Dart source, plus common
   config formats (`.env`, `.properties`, `.yml`/`.yaml`, `.json`, `.xml`,
   `.config`, `.ini`, `.conf`, `.cfg`).
 - Also catches high-confidence secret shapes - AWS keys, GitHub/Slack
@@ -256,12 +256,14 @@ directory (`%APPDATA%\CredentialScrubber` on Windows,
   literals** - that path relies on key-name and value-pattern matching
   only.
 - **Multiline concatenation detection** - Python's parenthesized
-  multi-string style, and Java/JavaScript/C#/Go's `+`-operator style (both
+  multi-string style, and Java/JavaScript/C#/Go/Dart's `+`-operator style (both
   "trailing +" and "leading +"). For Go, both `var name Type = "frag"` and
   the short declaration `name := "frag"` are covered, and - unlike the
-  other three languages - a chain doesn't need a trailing `;` to be
+  other languages - a chain doesn't need a trailing `;` to be
   recognized as complete, since Go conventionally omits it. JavaScript
-  template literals spanning multiple lines are **not** covered.
+  template literals spanning multiple lines are **not** covered. Dart's
+  adjacent-string style (`'abc'` on one line, `'def';` on the next, no
+  `+`) is **not** covered: only the first fragment is masked.
 
 **Supported languages/formats**, from `engine.py`'s extension mapping:
 
@@ -269,6 +271,7 @@ directory (`%APPDATA%\CredentialScrubber` on Windows,
 |---|---|
 | Java, Python, Go, C# | Each its own code-pattern rule set. |
 | JavaScript / TypeScript | `.js`, `.jsx`, `.ts`, and `.tsx` are all handled by **the same merged JavaScript rule set** - TypeScript does not have a separate rule set. |
+| Dart (`.dart`) | A secret-looking name (camelCase or snake_case) given a non-empty `'...'`, `"..."`, or raw `r'...'` literal in three forms: a declaration/assignment (optional `const`/`final`/`var`/`late`/`static` and type, e.g. `String? clientSecret = 'x'`), a named argument (`FirebaseOptions(apiKey: 'x')`), or a quoted map key (`{'apiKey': 'x'}`). Not covered: triple-quoted strings, escaped quotes inside a literal, and adjacent-string joining. Interpolation-only strings (`'$token'`, `'${token}'`) are skipped. There is no Flutter-specific handling: generated `*.g.dart` files are scanned like any other `.dart` file, and `pubspec.yaml` goes through the normal YAML rules. Names like `tokenStorageKey = 'auth_token'` or `_authError = 'Invalid password'` are flagged, the same as the equivalent Java/JS. |
 | JSON, XML, `.config` | Line/regex-based key-value matching, **not a full parser** - see below. |
 | YAML | Regex-based key-value matching; see the block-scalar limitation below. |
 | `.properties`, `.env`, `.ini`, `.conf`, `.cfg` | Config-style key-value matching. |

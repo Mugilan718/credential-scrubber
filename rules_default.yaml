@@ -112,6 +112,22 @@ code_patterns:
     - '(?i)\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\w*\s*:?=\s*"([^"]*)"'
   csharp:
     - '(?i)(?:string|var)\s+\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\w*\s*=\s*"([^"]*)"'
+  dart:
+    # All three share one literal shape: '...' or "..." (optionally r-prefixed
+    # raw), non-empty, single-line. The lookbehinds pick the closing quote to
+    # match the opening one without a backreference (_bound_code_pattern()
+    # adds groups in front, which would shift backreference numbers). A
+    # non-raw string made only of $name / ${expr} interpolations is skipped.
+    # Not covered: triple-quoted strings, escaped quotes inside the literal.
+    # 1. Declaration or assignment, with optional const/final/var/late/static
+    #    and optional type: `const String apiKey = 'x';`, `String? clientSecret = "x";`
+    - '(?i)(?<!\w)(?:(?:const|final|var|late|static)\s+)*(?:[A-Za-z_][\w.]*(?:<[^=;\n]*>)?\??\s+)?\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\w*\s*=\s*(?:r["'']|["''](?!(?:\$\w+|\$\{[^}\n]*\})+["'']))((?:(?<=")[^"\n]+(?=")|(?<='')[^''\n]+(?='')))["'']'
+    # 2. Named argument: `FirebaseOptions(apiKey: 'x', ...)`, or `apiKey: 'x',`
+    #    on its own line. Must follow '(' / ',' / line start, so a ternary
+    #    `cond ? token : 'x'` is not mistaken for one.
+    - '(?i)(?:^|[(,])\s*\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\w*\s*:\s*(?:r["'']|["''](?!(?:\$\w+|\$\{[^}\n]*\})+["'']))((?:(?<=")[^"\n]+(?=")|(?<='')[^''\n]+(?='')))["'']'
+    # 3. Map entry with a quoted key: `{'apiKey': 'x'}`
+    - '(?i)["'']\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\w*["'']\s*:\s*(?:r["'']|["''](?!(?:\$\w+|\$\{[^}\n]*\})+["'']))((?:(?<=")[^"\n]+(?=")|(?<='')[^''\n]+(?='')))["'']'
 
 # ------------------------------------------------------------------
 # 4. PLACEHOLDER ALLOW-LIST

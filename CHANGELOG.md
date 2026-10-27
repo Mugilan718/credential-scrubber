@@ -6,7 +6,23 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- Dart (`.dart`) source files are now scanned as code. A secret-looking
+  variable/field/parameter name (same keyword list as the other
+  languages, camelCase-aware) given a non-empty single-, double-quoted,
+  or raw (`r'...'`) string literal is masked in three forms:
+  declarations/assignments with optional `const`/`final`/`var`/`late`/
+  `static` and an optional (nullable) type, named arguments
+  (`FirebaseOptions(apiKey: '...')`), and quoted map keys
+  (`{'apiKey': '...'}`). `+` concatenation across lines is handled the
+  same way as Java/JS/C# (a terminating `;` is required). Not masked:
+  declarations without a value, empty strings, strings made only of
+  `$name`/`${expr}` interpolations, and names that don't look secret.
+  Not covered: triple-quoted strings, escaped quotes inside a literal,
+  and adjacent-string joining without `+` (only the first fragment is
+  masked). No Flutter-specific handling: `*.g.dart` files are scanned
+  like any other Dart file.
 
 ## [2.1.0] - 2026-10-04
 

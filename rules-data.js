@@ -101,6 +101,11 @@ const RULES = {
     ],
     "csharp": [
       "(?i)(?:string|var)\\s+\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*\\s*=\\s*\"([^\"]*)\""
+    ],
+    "dart": [
+      "(?i)(?<!\\w)(?:(?:const|final|var|late|static)\\s+)*(?:[A-Za-z_][\\w.]*(?:<[^=;\\n]*>)?\\??\\s+)?\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*\\s*=\\s*(?:r[\"']|[\"'](?!(?:\\$\\w+|\\$\\{[^}\\n]*\\})+[\"']))((?:(?<=\")[^\"\\n]+(?=\")|(?<=')[^'\\n]+(?=')))[\"']",
+      "(?i)(?:^|[(,])\\s*\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*\\s*:\\s*(?:r[\"']|[\"'](?!(?:\\$\\w+|\\$\\{[^}\\n]*\\})+[\"']))((?:(?<=\")[^\"\\n]+(?=\")|(?<=')[^'\\n]+(?=')))[\"']",
+      "(?i)[\"']\\w*(?:password|secret|token|apikey|api_key|key|credential|auth)\\w*[\"']\\s*:\\s*(?:r[\"']|[\"'](?!(?:\\$\\w+|\\$\\{[^}\\n]*\\})+[\"']))((?:(?<=\")[^\"\\n]+(?=\")|(?<=')[^'\\n]+(?=')))[\"']"
     ]
   },
   "placeholder_allowlist": [

@@ -262,12 +262,12 @@ CONFIG_EXTENSIONS = {".properties", ".yml", ".yaml", ".json", ".xml", ".ini", ".
 CODE_EXTENSIONS = {
     ".java": "java", ".py": "python",
     ".js": "javascript", ".jsx": "javascript", ".ts": "javascript", ".tsx": "javascript",
-    ".go": "go", ".cs": "csharp",
+    ".go": "go", ".cs": "csharp", ".dart": "dart",
 }
 CONFIG_FILENAMES = {".env"}
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "target", "dist", "build", ".idea", ".vscode"}
 
-PLUS_CONCAT_LANGS = {"java", "javascript", "csharp", "go"}
+PLUS_CONCAT_LANGS = {"java", "javascript", "csharp", "go", "dart"}
 
 # ------------------------------------------------------------------
 # Unrecognized-file fallback: a file whose extension classify_file()
