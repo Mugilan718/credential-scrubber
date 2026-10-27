@@ -6,6 +6,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [2.2.0] - 2026-10-27
+
 ### Added
 
 - Dart (`.dart`) source files are now scanned as code. A secret-looking
@@ -23,6 +27,12 @@ follows [Semantic Versioning](https://semver.org/).
   and adjacent-string joining without `+` (only the first fragment is
   masked). No Flutter-specific handling: `*.g.dart` files are scanned
   like any other Dart file.
+
+### Changed
+
+- README: restructured the top into a front page (what it does,
+  how to get it, limits), reworded the "Why" and AI-provider wording to
+  be more precise, and added screenshots (fake fixture data only).
 
 ## [2.1.0] - 2026-10-04
 
@@ -219,7 +229,8 @@ Security-relevant fixes from an internal audit (tracked as F1-F4):
   `POST /api/projects/<id>/apply` (see "Added" above). Anything calling
   the old route directly needs to switch to the two-step flow.
 
-[Unreleased]: https://github.com/Mugilan718/credential-scrubber/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/Mugilan718/credential-scrubber/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/Mugilan718/credential-scrubber/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/Mugilan718/credential-scrubber/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/Mugilan718/credential-scrubber/compare/v1.0.0...v2.0.0
